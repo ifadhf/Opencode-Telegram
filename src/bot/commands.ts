@@ -69,7 +69,11 @@ export function registerCommands(
     const args = ctx.match as string
     if (args) {
       try {
+        const oldSessionId = stateManager.getCurrentSession(ctx.chat.id)
         const session = await client.getSession(args)
+        if (oldSessionId && oldSessionId !== session.id && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat.id, '↪️ Session switched')
+        }
         stateManager.setCurrentSession(ctx.chat.id, session.id)
         await ctx.reply(`Selected session: \`${escapeMarkdown(session.id)}\``, {
           parse_mode: 'Markdown',
@@ -79,7 +83,11 @@ export function registerCommands(
       }
     } else {
       try {
+        const oldSessionId = stateManager.getCurrentSession(ctx.chat.id)
         const session = await client.createSession()
+        if (oldSessionId && oldSessionId !== session.id && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat.id, '↪️ Session switched')
+        }
         stateManager.setCurrentSession(ctx.chat.id, session.id)
         await ctx.reply(`Created new session: \`${escapeMarkdown(session.id)}\`\n\nSend any message to start!`, {
           parse_mode: 'Markdown',
@@ -167,6 +175,7 @@ export function registerCommands(
 
     try {
       await client.abortSession(sessionId)
+      if (eventProcessor) await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id)
       await ctx.reply('🛑 Session aborted.')
     } catch (error) {
       await ctx.reply(`Failed to abort: ${(error as Error).message}`)
@@ -182,6 +191,10 @@ export function registerCommands(
 
     log.info('User command', { command: '/clear', userId: ctx.from?.id })
 
+    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    if (sessionId && eventProcessor) {
+      await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id, '🧹 Session cleared')
+    }
     stateManager.clearChatState(ctx.chat.id)
     await ctx.reply('Cleared current session, model, and mode settings.')
   })

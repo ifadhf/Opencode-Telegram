@@ -125,20 +125,17 @@ export class EventProcessor {
             const lastIsNew = last && newMessages.some(m => m.id === last.id)
 
             if (lastIsNew && last.role === 'assistant' && (last.time?.completed || (last as any).finish)) {
-              log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId })
+              if (!this.pendingCompletions.has(sessionId)) {
+                log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId })
 
-              const existingPending = this.pendingCompletions.get(sessionId)
-              if (existingPending) {
-                clearTimeout(existingPending.debounceTimer)
+                const debounceTimer = setTimeout(async () => {
+                  this.pendingCompletions.delete(sessionId)
+                  this.busySessions.delete(sessionId)
+                  await this.processSessionIdle(sessionId, busyInfo.chatId)
+                }, COMPLETION_DEBOUNCE_MS)
+
+                this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId })
               }
-
-              const debounceTimer = setTimeout(async () => {
-                this.pendingCompletions.delete(sessionId)
-                this.busySessions.delete(sessionId)
-                await this.processSessionIdle(sessionId, busyInfo.chatId)
-              }, COMPLETION_DEBOUNCE_MS)
-
-              this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId })
             } else {
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
                 await this.pollTodos(busyInfo)
@@ -332,7 +329,7 @@ export class EventProcessor {
     return todos.map(t => `${t.status}:${t.content}`).join('|')
   }
 
-  private async processSessionIdle(sessionId: string, chatId: number): Promise<void> {
+  private async processSessionIdle(sessionId: string, chatId: number, statusText = '✅ Task completed!'): Promise<void> {
     const existingBusy = this.busySessions.get(sessionId)
     if (existingBusy?.idleProcessing) return
     if (existingBusy) {
@@ -346,7 +343,7 @@ export class EventProcessor {
       await this.bot.api.editMessageText(
         working.chatId,
         working.messageId,
-        '✅ Task completed!'
+        statusText
       ).catch(() => {})
       if (working.statusMessageId) {
         await this.bot.api.deleteMessage(working.chatId, working.statusMessageId).catch(() => {})
@@ -384,10 +381,37 @@ export class EventProcessor {
   }
 
   private async processNewMessages(chatId: number, sessionId: string, messages: any[], busyInfo: BusySessionInfo): Promise<void> {
-    const pending = this.pendingCompletions.get(sessionId)
-    if (pending) {
-      clearTimeout(pending.debounceTimer)
-      this.pendingCompletions.delete(sessionId)
+    // Only cancel a pending completion debounce if there is genuinely new
+    // activity to process. Without this guard, every poll clears the pending
+    // timer (even when nothing is new), so the completion block below resets a
+    // fresh 5s timer every 3s poll and the debounce NEVER fires.
+    const hasNewActivity = messages.some(msg =>
+      msg.role === 'assistant' && msg.parts?.some((part: any) => {
+        const partKey = part.id || `${msg.id}:${part.type}`
+        if (part.type === 'tool') {
+          const status = part.state?.status
+          if (status === 'running') return !busyInfo.processingTools.has(partKey)
+          if (status === 'completed' || status === 'error') return busyInfo.processingTools.has(partKey)
+          return false
+        }
+        if (part.type === 'step-finish') {
+          const stepId = part.id || `${msg.id}-${part.type}`
+          return !busyInfo.processedStepFinishIds.has(stepId)
+        }
+        if (part.type === 'step-start') {
+          const stepTitle = part.title || part.label || ''
+          return !!stepTitle && stepTitle !== busyInfo.currentStepTitle
+        }
+        return !busyInfo.processedPartIds.has(partKey)
+      })
+    )
+
+    if (hasNewActivity) {
+      const pending = this.pendingCompletions.get(sessionId)
+      if (pending) {
+        clearTimeout(pending.debounceTimer)
+        this.pendingCompletions.delete(sessionId)
+      }
     }
 
     for (const msg of messages) {
@@ -409,9 +433,9 @@ export class EventProcessor {
           }
         }
 
-        if (part.type === 'reasoning' && part.time?.end && part.text?.trim() && !busyInfo.processedPartIds.has(partKey)) {
+        if (part.type === 'reasoning' && part.time?.end && !busyInfo.processedPartIds.has(partKey)) {
           busyInfo.processedPartIds.add(partKey)
-          if (!SHOW_THINKING) continue
+          if (!part.text?.trim() || !SHOW_THINKING) continue
           const thinking = part.text.trim()
           const maxLen = 2000
           const displayText = thinking.length > maxLen ? thinking.substring(0, maxLen) + '...' : thinking
@@ -422,9 +446,9 @@ export class EventProcessor {
           )
         }
 
-        if (part.type === 'text' && part.time?.end && part.text?.trim() && !busyInfo.processedPartIds.has(partKey)) {
+        if (part.type === 'text' && part.time?.end && !busyInfo.processedPartIds.has(partKey)) {
           busyInfo.processedPartIds.add(partKey)
-          if (part.ignored || part.synthetic) continue
+          if (!part.text?.trim() || part.ignored || part.synthetic) continue
           const text = stripAnsi(part.text.trim())
           if (text) {
             const chunks = splitMessage(`📝 *Response:*\n${escapeMarkdown(text)}`)
@@ -602,6 +626,16 @@ export class EventProcessor {
 
   setWorkingMessage(sessionId: string, chatId: number, messageId: number): void {
     this.workingSessions.set(sessionId, { chatId, messageId })
+  }
+
+  async forceSessionIdle(sessionId: string, chatId: number, statusText = '🛑 Task aborted'): Promise<void> {
+    this.busySessions.delete(sessionId)
+    const pending = this.pendingCompletions.get(sessionId)
+    if (pending) {
+      clearTimeout(pending.debounceTimer)
+      this.pendingCompletions.delete(sessionId)
+    }
+    await this.processSessionIdle(sessionId, chatId, statusText)
   }
 
   getWorkingStatus(sessionId: string): string | null {

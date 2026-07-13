@@ -156,6 +156,10 @@ export function registerHandlers(
     // Session selection callbacks
     if (data.startsWith('session:')) {
       const sessionId = data.replace('session:', '')
+      const oldSessionId = stateManager.getCurrentSession(ctx.chat!.id)
+      if (oldSessionId && oldSessionId !== sessionId) {
+        await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat!.id, '↪️ Session switched')
+      }
       stateManager.setCurrentSession(ctx.chat!.id, sessionId)
 
       await ctx.answerCallbackQuery('Session selected')

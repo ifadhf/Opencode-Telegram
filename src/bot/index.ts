@@ -47,6 +47,35 @@ export class TelegramBot {
     // Load state
     await this.stateManager.load()
 
+    // Register command menu (autocomplete suggestions in Telegram)
+    // Non-blocking: don't let a slow/hanging API call delay bot.start() polling
+    this.bot.api.setMyCommands([
+      { command: 'start', description: 'Start the bot / show welcome' },
+      { command: 'help', description: 'Show all commands' },
+      { command: 'session', description: 'Create new session' },
+      { command: 'sessions', description: 'List recent sessions' },
+      { command: 'continue', description: 'Continue an old session' },
+      { command: 'status', description: 'Show current session status' },
+      { command: 'working', description: 'Show what OpenCode is doing now' },
+      { command: 'abort', description: 'Stop running task' },
+      { command: 'clear', description: 'Clear current session & settings' },
+      { command: 'providers', description: 'List AI providers' },
+      { command: 'models', description: 'List models for a provider' },
+      { command: 'model', description: 'Show / select current model' },
+      { command: 'modes', description: 'List available modes' },
+      { command: 'mode', description: 'Select mode (build/plan)' },
+      { command: 'files', description: 'List project files' },
+      { command: 'file', description: 'View file content' },
+      { command: 'find', description: 'Search code' },
+      { command: 'cost', description: 'Show cost tracking' },
+      { command: 'todo', description: 'Show task list' },
+      { command: 'diff', description: 'Show file changes' },
+    ]).then(() => {
+      log.info('Command menu registered')
+    }).catch(error => {
+      log.warn('Failed to register command menu', { error: (error as Error).message })
+    })
+
     // Start event processor in background
     this.eventProcessor.start().catch(error => {
       log.error('Event processor failed', { error: error.message })
