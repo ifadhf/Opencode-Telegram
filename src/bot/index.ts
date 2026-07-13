@@ -52,6 +52,7 @@ export class TelegramBot {
     this.bot.api.setMyCommands([
       { command: 'start', description: 'Start the bot / show welcome' },
       { command: 'help', description: 'Show all commands' },
+      { command: 'history', description: 'Show message history' },
       { command: 'session', description: 'Create new session' },
       { command: 'sessions', description: 'List recent sessions' },
       { command: 'continue', description: 'Continue an old session' },

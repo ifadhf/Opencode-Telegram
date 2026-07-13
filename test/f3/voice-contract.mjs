@@ -35,8 +35,8 @@ describe('F3 NOT YET IMPLEMENTED — Voice transcription', { skip: TRANSCRIBE_IM
 })
 
 describe('F3 TranscriptionClient contract', { skip: !TRANSCRIPTION_CLIENT_IMPL }, () => {
-  test('TranscriptionClient constructor accepts apiKey and optional baseUrl', () => {
-    const { TranscriptionClient } = require('../../dist/opencode/voice.js')
+  test('TranscriptionClient constructor accepts apiKey and optional baseUrl', async () => {
+    const { TranscriptionClient } = await import('../../dist/opencode/voice.js')
     const client = new TranscriptionClient({ apiKey: 'sk-test' })
     assert.ok(client instanceof TranscriptionClient)
     const client2 = new TranscriptionClient({ apiKey: 'sk-test', baseUrl: 'https://api.example.com/v1' })
@@ -48,25 +48,22 @@ describe('F3 TranscriptionClient contract', { skip: !TRANSCRIPTION_CLIENT_IMPL }
       console.log('[SKIP] OPENAI_API_KEY not set — skipping live API test')
       return
     }
-    const { TranscriptionClient } = require('../../dist/opencode/voice.js')
+    const { TranscriptionClient } = await import('../../dist/opencode/voice.js')
     const client = new TranscriptionClient({
       apiKey: process.env.OPENAI_API_KEY,
       baseUrl: process.env.OPENAI_BASE_URL,
     })
-    // Create a minimal valid OGG/WAV header for testing
-    // This WILL fail on actual transcription but tests the API call path
     const fakeAudio = Buffer.alloc(1024, 0)
     try {
       const result = await client.transcribe(fakeAudio, 'test.ogg')
       assert.ok(typeof result === 'string', 'transcribe should return string')
     } catch (err) {
-      // Expected: API will reject invalid audio
       assert.ok(err instanceof Error)
     }
   })
 
   test('transcribeAudio is a convenience wrapper', async () => {
-    const { transcribeAudio, TranscriptionClient } = require('../../dist/opencode/voice.js')
+    const { transcribeAudio, TranscriptionClient } = await import('../../dist/opencode/voice.js')
     const client = new TranscriptionClient({ apiKey: 'sk-test' })
     const fakeAudio = Buffer.alloc(1024, 0)
     try {
@@ -74,14 +71,12 @@ describe('F3 TranscriptionClient contract', { skip: !TRANSCRIPTION_CLIENT_IMPL }
     } catch {
       // Expected: API will reject invalid audio
     }
-    // transcribeAudio should be a function that calls client.transcribe
     assert.strictEqual(typeof transcribeAudio, 'function')
   })
 })
 
 describe('F3 Voice env vars contract', { skip: !TRANSCRIBE_IMPL }, () => {
   test('OPENAI_API_KEY and OPENAI_BASE_URL are supported', () => {
-    // The config should read these env vars
     assert.ok(process.env.OPENAI_API_KEY === undefined || typeof process.env.OPENAI_API_KEY === 'string',
       'OPENAI_API_KEY should be a string if set')
     assert.ok(process.env.OPENAI_BASE_URL === undefined || typeof process.env.OPENAI_BASE_URL === 'string',

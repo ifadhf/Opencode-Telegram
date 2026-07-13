@@ -5,6 +5,8 @@ import { PermissionHandler } from '../opencode/permission.js'
 import { EventProcessor } from '../opencode/events.js'
 import { MessageQueue } from './queue.js'
 import { getLogger } from '../utils/logger.js'
+import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './history.js'
+import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -129,6 +131,123 @@ export function registerHandlers(
     }
   })
 
+  // Handle voice messages (transcription → prompt)
+  bot.on('message:voice', async (ctx) => {
+    const userId = ctx.from?.id.toString()
+    if (userId !== process.env.AUTHORIZED_USER_ID) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    const threadId = getThreadId(ctx)
+    const { sessionId } = resolveSession(ctx, stateManager)
+    if (!sessionId) {
+      if (threadId > 0) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      } else {
+        await ctx.reply('No session selected. Use /session to create or select one.')
+      }
+      return
+    }
+
+    const transcribingMsg = await ctx.reply('🎤 Transcribing voice...')
+
+    try {
+      const file = await ctx.api.getFile(ctx.message.voice.file_id)
+      const token = process.env.TELEGRAM_BOT_TOKEN
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`
+      const audioResp = await fetch(url)
+      const audioBuffer = Buffer.from(await audioResp.arrayBuffer())
+
+      if (!process.env.OPENAI_API_KEY) {
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          transcribingMsg.message_id,
+          '❌ OPENAI_API_KEY not configured'
+        )
+        return
+      }
+
+      const transcriptionClient = new TranscriptionClient({
+        apiKey: process.env.OPENAI_API_KEY!,
+        baseUrl: process.env.OPENAI_BASE_URL,
+      })
+      const transcript = await transcribeAudio(transcriptionClient, audioBuffer, file.file_path || 'voice.ogg')
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        transcribingMsg.message_id,
+        `🎤 ${transcript}`
+      )
+
+      // Forward as prompt — same flow as text
+      if (messageQueue.isBusy(ctx.chat.id, threadId)) {
+        try {
+          const position = messageQueue.getQueueLength(ctx.chat.id, threadId) + 1
+          await messageQueue.enqueue(ctx.chat.id, transcript, threadId)
+          await ctx.reply(`📋 Queued (position ${position}). Will process when current task finishes.`)
+        } catch (error) {
+          await ctx.reply(`❌ Failed to queue message: ${(error as Error).message}`)
+        }
+        return
+      }
+
+      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+      const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
+      const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
+
+      stateManager.incrementPromptCount(ctx.chat.id)
+      messageQueue.setBusy(ctx.chat.id, threadId)
+
+      const replyOpts: any = {}
+      if (threadId > 0) replyOpts.message_thread_id = threadId
+      const workingMsg = await ctx.reply('⏳ OpenCode is working...', replyOpts)
+      eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
+
+      try {
+        await client.sendAsyncMessage(sessionId, transcript, {
+          providerId: selectedModel?.providerId,
+          modelId: selectedModel?.modelId,
+          agent: selectedMode,
+        })
+        log.info('Sent voice transcript to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
+      } catch (error) {
+        log.error('Failed to send voice transcript', { error: (error as Error).message })
+        messageQueue.setIdle(ctx.chat.id, threadId)
+
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          workingMsg.message_id,
+          `❌ Error: ${(error as Error).message}`
+        )
+
+        const next = messageQueue.dequeue(ctx.chat.id, threadId)
+        if (next) {
+          messageQueue.setBusy(ctx.chat.id, threadId)
+          try {
+            const newWorkingMsg = await ctx.reply('⏳ Processing next queued message...', replyOpts)
+            eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, newWorkingMsg.message_id, threadId)
+            await client.sendAsyncMessage(sessionId, next.text, {
+              providerId: selectedModel?.providerId,
+              modelId: selectedModel?.modelId,
+              agent: selectedMode,
+            })
+            next.resolve()
+          } catch {
+            messageQueue.setIdle(ctx.chat.id, threadId)
+            next.reject(error as Error)
+          }
+        }
+      }
+    } catch (error) {
+      log.error('Voice transcription failed', { error: (error as Error).message })
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        transcribingMsg.message_id,
+        `❌ Transcription failed: ${(error as Error).message}`
+      )
+    }
+  })
+
   // Handle callback queries (inline buttons)
   bot.on('callback_query:data', async (ctx) => {
     const userId = ctx.from?.id.toString()
@@ -238,6 +357,30 @@ export function registerHandlers(
     // Model page navigation
     if (data.startsWith('models_page:')) {
       // Handled by commands.ts
+      return
+    }
+
+    // History pagination
+    if (data.startsWith('history_nop')) {
+      await ctx.answerCallbackQuery()
+      return
+    }
+
+    if (data.startsWith('history_page:')) {
+      const parts = data.split(':')
+      const page = parseInt(parts[1], 10)
+      const sessionId = parts.slice(2).join(':')
+      try {
+        const messages = await client.getMessages(sessionId, 50)
+        messages.reverse()
+        const paginated = paginateMessages(messages, page)
+        const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
+        const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard })
+      } catch (error) {
+        log.error('Failed to load history page', { error: (error as Error).message })
+        await ctx.answerCallbackQuery('Failed to load page')
+      }
       return
     }
 

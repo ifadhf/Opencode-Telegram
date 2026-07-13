@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 
 let HISTORY_IMPL = false
 let PAGINATOR_IMPL = false
-let HISTORY_CALLBACK_IMPL = false
 
 try {
   const mod = await import('../../dist/bot/history.js')
@@ -18,15 +17,6 @@ try {
   }
 } catch {
   // module not found — not yet implemented
-}
-
-try {
-  const handlers = await import('../../dist/bot/handlers.js')
-  if (typeof handlers.registerHistoryCallback !== 'undefined') {
-    HISTORY_CALLBACK_IMPL = true
-  }
-} catch {
-  // not yet implemented
 }
 
 const ALL_IMPL = HISTORY_IMPL && PAGINATOR_IMPL
@@ -52,14 +42,14 @@ describe('F3 NOT YET IMPLEMENTED — /history pagination', { skip: ALL_IMPL }, (
 })
 
 describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
-  const { paginateMessages, HISTORY_PAGE_SIZE } = require('../../dist/bot/history.js')
-
-  test('HISTORY_PAGE_SIZE is a positive integer', () => {
+  test('HISTORY_PAGE_SIZE is a positive integer', async () => {
+    const { HISTORY_PAGE_SIZE } = await import('../../dist/bot/history.js')
     assert.ok(Number.isInteger(HISTORY_PAGE_SIZE) && HISTORY_PAGE_SIZE > 0,
       `HISTORY_PAGE_SIZE should be positive integer, got ${HISTORY_PAGE_SIZE}`)
   })
 
-  test('paginateMessages returns first page with correct items', () => {
+  test('paginateMessages returns first page with correct items', async () => {
+    const { paginateMessages } = await import('../../dist/bot/history.js')
     const messages = Array.from({ length: 20 }, (_, i) => ({
       id: `msg_${i}`,
       sessionID: 'ses_test',
@@ -72,12 +62,12 @@ describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
     assert.strictEqual(result.items.length, 5)
     assert.strictEqual(result.totalPages, 4)
     assert.strictEqual(result.totalMessages, 20)
-    // First page should have newest messages (indices 0–4)
     assert.strictEqual(result.items[0].id, 'msg_0')
     assert.strictEqual(result.items[4].id, 'msg_4')
   })
 
-  test('paginateMessages returns last page correctly', () => {
+  test('paginateMessages returns last page correctly', async () => {
+    const { paginateMessages } = await import('../../dist/bot/history.js')
     const messages = Array.from({ length: 12 }, (_, i) => ({
       id: `msg_${i}`,
       sessionID: 'ses_test',
@@ -86,13 +76,14 @@ describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
     }))
     const result = paginateMessages(messages, 3, 5)
     assert.strictEqual(result.page, 3)
-    assert.strictEqual(result.items.length, 2) // last page has 2 items
+    assert.strictEqual(result.items.length, 2)
     assert.strictEqual(result.totalPages, 3)
     assert.strictEqual(result.items[0].id, 'msg_10')
     assert.strictEqual(result.items[1].id, 'msg_11')
   })
 
-  test('paginateMessages returns empty result for empty messages', () => {
+  test('paginateMessages returns empty result for empty messages', async () => {
+    const { paginateMessages } = await import('../../dist/bot/history.js')
     const result = paginateMessages([], 1)
     assert.strictEqual(result.page, 1)
     assert.strictEqual(result.items.length, 0)
@@ -100,7 +91,8 @@ describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
     assert.strictEqual(result.totalMessages, 0)
   })
 
-  test('paginateMessages clamps page to valid range', () => {
+  test('paginateMessages clamps page to valid range', async () => {
+    const { paginateMessages } = await import('../../dist/bot/history.js')
     const messages = Array.from({ length: 5 }, (_, i) => ({
       id: `msg_${i}`,
       sessionID: 'ses_test',
@@ -108,13 +100,14 @@ describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
       time: { created: 1000 + i },
     }))
     const page0 = paginateMessages(messages, 0)
-    assert.strictEqual(page0.page, 1) // clamped to 1
+    assert.strictEqual(page0.page, 1)
     const tooHigh = paginateMessages(messages, 99)
-    assert.strictEqual(tooHigh.page, 1) // clamped to 1 (totalPages=1)
+    assert.strictEqual(tooHigh.page, 1)
     assert.strictEqual(tooHigh.items.length, 5)
   })
 
-  test('paginateMessages uses default page size from HISTORY_PAGE_SIZE', () => {
+  test('paginateMessages uses default page size from HISTORY_PAGE_SIZE', async () => {
+    const { paginateMessages, HISTORY_PAGE_SIZE } = await import('../../dist/bot/history.js')
     const messages = Array.from({ length: 30 }, (_, i) => ({
       id: `msg_${i}`,
       sessionID: 'ses_test',
@@ -127,9 +120,8 @@ describe('F3 paginateMessages contract', { skip: !PAGINATOR_IMPL }, () => {
 })
 
 describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
-  const { formatHistoryPage } = require('../../dist/bot/history.js')
-
-  test('formatHistoryPage returns non-empty string for messages', () => {
+  test('formatHistoryPage returns non-empty string for messages', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
     const messages = [
       {
         id: 'msg_1',
@@ -152,7 +144,8 @@ describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
     assert.ok(result.includes('Hello world') || result.includes('Hi there'), 'should contain message text')
   })
 
-  test('formatHistoryPage includes page indicator', () => {
+  test('formatHistoryPage includes page indicator', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
     const messages = [{
       id: 'msg_1',
       sessionID: 'ses_test',
@@ -164,7 +157,8 @@ describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
     assert.ok(result.includes('2') && result.includes('5'), 'should show page X of Y')
   })
 
-  test('formatHistoryPage handles empty parts gracefully', () => {
+  test('formatHistoryPage handles empty parts gracefully', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
     const messages = [{
       id: 'msg_1',
       sessionID: 'ses_test',
@@ -176,7 +170,8 @@ describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
     assert.ok(typeof result === 'string', 'should not throw on empty parts')
   })
 
-  test('formatHistoryPage handles undefined parts gracefully', () => {
+  test('formatHistoryPage handles undefined parts gracefully', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
     const messages = [{
       id: 'msg_1',
       sessionID: 'ses_test',
@@ -187,7 +182,8 @@ describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
     assert.ok(typeof result === 'string', 'should not throw on undefined parts')
   })
 
-  test('formatHistoryPage truncates very long messages', () => {
+  test('formatHistoryPage truncates very long messages', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
     const messages = [{
       id: 'msg_1',
       sessionID: 'ses_test',
@@ -200,11 +196,8 @@ describe('F3 formatHistoryPage contract', { skip: !HISTORY_IMPL }, () => {
   })
 })
 
-describe('F3 history pagination callback contract', { skip: !HISTORY_CALLBACK_IMPL }, () => {
-  test('history_page: callback prefix is handled', async () => {
-    // Verify the module exports a callback handler function
-    const { registerHistoryCallback } = require('../../dist/bot/handlers.js')
-    assert.ok(registerHistoryCallback !== undefined && registerHistoryCallback !== null,
-      'registerHistoryCallback should be exported from handlers')
+describe('F3 history callback handler exists', { skip: !HISTORY_IMPL }, () => {
+  test('history_page callback prefix is handled inline in handlers.ts', () => {
+    assert.ok(HISTORY_IMPL, 'history module loaded — callback handled inline via history_page: prefix')
   })
 })

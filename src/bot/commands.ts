@@ -3,6 +3,7 @@ import { StateManager } from '../state/manager.js'
 import { OpenCodeClient, Model, Provider } from '../opencode/client.js'
 import { EventProcessor } from '../opencode/events.js'
 import { escapeMarkdown, splitMessage } from '../utils/formatter.js'
+import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE_SIZE } from './history.js'
 import { getLogger } from '../utils/logger.js'
 
 export function registerCommands(
@@ -1063,4 +1064,37 @@ export function registerCommands(
       { parse_mode: 'Markdown' }
     )
   })
+
+  // History command
+  bot.command('history', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    log.info('User command', { command: '/history', userId: ctx.from?.id })
+
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+    if (!sessionId) {
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
+      return
+    }
+
+    const page = Math.max(1, parseInt((ctx.match as string || '').trim(), 10) || 1)
+
+    try {
+      const messages = await client.getMessages(sessionId, 50)
+      const reversed = [...messages].reverse()
+      const paginated = paginateMessages(reversed, page, HISTORY_PAGE_SIZE)
+      const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
+      const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
+
+      const replyOpts: any = { parse_mode: 'Markdown', reply_markup: keyboard }
+      if (threadId > 0) replyOpts.message_thread_id = threadId
+      await ctx.reply(text, replyOpts)
+    } catch (error) {
+      await ctx.reply(`Failed to fetch history: ${(error as Error).message}`)
+    }
+  })
+
 }
