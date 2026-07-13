@@ -57,12 +57,12 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 ### Fase 1 — Poles notifikasi + completion notif (1–2 hari) — quick win
 
-- [ ] `events.ts`: ringkasan tool ala ccbot ("Read 42 lines", "Found 5 matches", `❯ command`)
-- [ ] Thinking sebagai expandable blockquote, flag `SHOW_THINKING` (default off)
-- [ ] Flag `SHOW_TOOL_CALLS` (default off) — hindari flood limit Telegram (~20 msg/menit/grup)
-- [ ] Flag `SHOW_TOKENS` (default off) — tampilkan usage token di notif completion, format: `65→80 tokens (19 reasoning) [cache: 20224r/0w]`
-- [ ] Notif completion + debounce ±5 dtk: "✅ Task selesai — menunggu input" (port perilaku dari patch ccbot)
-- [ ] Splitting pesan panjang yang sadar tag HTML / code block
+- [x] `events.ts`: ringkasan tool ala ccbot ("Read 42 lines", "Found 5 matches", `❯ command`)
+- [x] Thinking sebagai expandable blockquote, flag `SHOW_THINKING` (default off)
+- [x] Flag `SHOW_TOOL_CALLS` (default off) — hindari flood limit Telegram (~20 msg/menit/grup)
+- [x] Flag `SHOW_TOKENS` (default off) — tampilkan usage token di notif completion, format: `65→80 tokens (19 reasoning) [cache: 20224r/0w]`
+- [x] Notif completion + debounce ±5 dtk: "✅ Selesai — menunggu input" (port perilaku dari patch ccbot)
+- [x] Splitting pesan panjang yang sadar tag HTML / code block
 
 **Selesai jika:** task panjang menghasilkan sedikit pesan yang rapi + tepat satu notif completion.
 
@@ -114,3 +114,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | Tanggal | Progress |
 |---|---|
 | 2026-07-13 | Fork dibuat, development plan disusun |
+| 2026-07-13 | Fase 1 selesai: tool summaries, SHOW_THINKING/SHOW_TOOL_CALLS/SHOW_TOKENS flags, completion debounce 5dtk, HTML-aware splitting |

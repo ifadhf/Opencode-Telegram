@@ -12,6 +12,7 @@ interface BusySessionInfo {
   anchorMessageId?: string
   processedPartIds: Set<string>
   processedStepFinishIds: Set<string>
+  processingTools: Map<string, { partId: string; tool: string; title: string; startedAt: number }>
   startedAt: number
   lastActivityAt: number
   idleProcessing: boolean
@@ -28,12 +29,18 @@ interface TodoItem {
   priority: string
 }
 
+const SHOW_TOOL_CALLS = process.env.SHOW_TOOL_CALLS === 'true'
+const SHOW_THINKING = process.env.SHOW_THINKING === 'true'
+const SHOW_TOKENS = process.env.SHOW_TOKENS === 'true'
+const COMPLETION_DEBOUNCE_MS = 5000
+
 export class EventProcessor {
   private running = false
   private workingSessions = new Map<string, { chatId: number; messageId: number; statusMessageId?: number }>()
   private consecutiveErrors = 0
   private maxConsecutiveErrors = 10
   private busySessions = new Map<string, BusySessionInfo>()
+  private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number }>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
@@ -80,6 +87,7 @@ export class EventProcessor {
                 anchorMessageId: lastUser?.id,
                 processedPartIds: new Set(),
                 processedStepFinishIds: new Set(),
+                processingTools: new Map(),
                 startedAt: Date.now(),
                 lastActivityAt: Date.now(),
                 idleProcessing: false,
@@ -118,8 +126,19 @@ export class EventProcessor {
 
             if (lastIsNew && last.role === 'assistant' && (last.time?.completed || (last as any).finish)) {
               log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId })
-              this.busySessions.delete(sessionId)
-              await this.processSessionIdle(sessionId, busyInfo.chatId)
+
+              const existingPending = this.pendingCompletions.get(sessionId)
+              if (existingPending) {
+                clearTimeout(existingPending.debounceTimer)
+              }
+
+              const debounceTimer = setTimeout(async () => {
+                this.pendingCompletions.delete(sessionId)
+                this.busySessions.delete(sessionId)
+                await this.processSessionIdle(sessionId, busyInfo.chatId)
+              }, COMPLETION_DEBOUNCE_MS)
+
+              this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId })
             } else {
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
                 await this.pollTodos(busyInfo)
@@ -133,6 +152,12 @@ export class EventProcessor {
             log.warn('Failed to poll busy session', { sessionId, error: (error as Error).message })
             this.busySessions.delete(sessionId)
             this.messageQueue.setIdle(busyInfo.chatId)
+
+            const pendingCompletion = this.pendingCompletions.get(sessionId)
+            if (pendingCompletion) {
+              clearTimeout(pendingCompletion.debounceTimer)
+              this.pendingCompletions.delete(sessionId)
+            }
 
             const working = this.workingSessions.get(sessionId)
             if (working) {
@@ -166,6 +191,12 @@ export class EventProcessor {
             log.warn('Session timed out, forcing idle', { sessionId, age, inactive })
             this.busySessions.delete(sessionId)
             this.messageQueue.setIdle(busyInfo.chatId)
+
+            const pendingCompletion = this.pendingCompletions.get(sessionId)
+            if (pendingCompletion) {
+              clearTimeout(pendingCompletion.debounceTimer)
+              this.pendingCompletions.delete(sessionId)
+            }
 
             const working = this.workingSessions.get(sessionId)
             if (working) {
@@ -308,6 +339,8 @@ export class EventProcessor {
       existingBusy.idleProcessing = true
     }
 
+    this.pendingCompletions.delete(sessionId)
+
     const working = this.workingSessions.get(sessionId)
     if (working) {
       await this.bot.api.editMessageText(
@@ -346,16 +379,23 @@ export class EventProcessor {
         this.messageQueue.setIdle(chatId)
       }
     } else {
-      await this.bot.api.sendMessage(chatId, '✅ *Done!*', { parse_mode: 'Markdown' }).catch(() => {})
+      await this.bot.api.sendMessage(chatId, '✅ *Selesai — menunggu input*', { parse_mode: 'Markdown' }).catch(() => {})
     }
   }
 
   private async processNewMessages(chatId: number, sessionId: string, messages: any[], busyInfo: BusySessionInfo): Promise<void> {
+    const pending = this.pendingCompletions.get(sessionId)
+    if (pending) {
+      clearTimeout(pending.debounceTimer)
+      this.pendingCompletions.delete(sessionId)
+    }
+
     for (const msg of messages) {
       if (msg.role !== 'assistant' || !msg.parts) continue
 
       for (const part of msg.parts) {
         const partKey = part.id || `${msg.id}:${part.type}`
+
         if (part.type === 'step-start') {
           const stepTitle = (part as any).title || (part as any).label || ''
           if (stepTitle && stepTitle !== busyInfo.currentStepTitle) {
@@ -371,6 +411,7 @@ export class EventProcessor {
 
         if (part.type === 'reasoning' && part.time?.end && part.text?.trim() && !busyInfo.processedPartIds.has(partKey)) {
           busyInfo.processedPartIds.add(partKey)
+          if (!SHOW_THINKING) continue
           const thinking = part.text.trim()
           const maxLen = 2000
           const displayText = thinking.length > maxLen ? thinking.substring(0, maxLen) + '...' : thinking
@@ -393,18 +434,38 @@ export class EventProcessor {
           }
         }
 
-        if (part.type === 'tool' && part.state?.status === 'running') {
+        if (part.type === 'tool') {
           const toolName = part.tool || 'unknown'
           const icon = this.getToolIcon(toolName)
           const title = stripAnsi(part.state?.title || '')
-          const toolKey = `${toolName}:${title}`
-          if (title && toolKey !== busyInfo.lastToolCall) {
-            busyInfo.lastToolCall = toolKey
-            await this.sendWithRateLimit(
-              chatId,
-              `⏳ ${icon} *${this.formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
-              { parse_mode: 'Markdown' }
-            )
+          const status = part.state?.status
+
+          if (status === 'running') {
+            busyInfo.processingTools.set(partKey, {
+              partId: partKey,
+              tool: toolName,
+              title,
+              startedAt: Date.now(),
+            })
+            if (!SHOW_TOOL_CALLS) continue
+            const toolKey = `${toolName}:${title}`
+            if (title && toolKey !== busyInfo.lastToolCall) {
+              busyInfo.lastToolCall = toolKey
+              await this.sendWithRateLimit(
+                chatId,
+                `⏳ ${icon} *${this.formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
+                { parse_mode: 'Markdown' }
+              )
+            }
+          } else if (status === 'completed' || status === 'error') {
+            const runningEntry = busyInfo.processingTools.get(partKey)
+            busyInfo.processingTools.delete(partKey)
+            if (!runningEntry) continue
+
+            const summary = this.buildToolSummary(toolName, part, runningEntry.title)
+            if (summary) {
+              await this.sendWithRateLimit(chatId, summary, { parse_mode: 'Markdown' })
+            }
           }
         }
 
@@ -413,36 +474,103 @@ export class EventProcessor {
           if (busyInfo.processedStepFinishIds.has(stepId)) continue
           busyInfo.processedStepFinishIds.add(stepId)
 
+          if (SHOW_TOKENS) {
+            const tokens = part.tokens
+            const cost = part.cost
+            if (tokens || cost) {
+              let info = '📊 '
+              if (tokens) {
+                info += `${tokens.input || 0}→${tokens.output || 0} tokens`
+                if (tokens.reasoning && tokens.reasoning > 0) {
+                  info += ` (${tokens.reasoning} reasoning)`
+                }
+                if (tokens.cache && (tokens.cache.read > 0 || tokens.cache.write > 0)) {
+                  info += ` [cache: ${tokens.cache.read || 0}r/${tokens.cache.write || 0}w]`
+                }
+              }
+              if (cost && cost > 0) {
+                info += ` • $${cost.toFixed(4)}`
+              }
+              await this.sendWithRateLimit(chatId, info)
+            }
+          }
+
           const tokens = part.tokens
           const cost = part.cost
-          if (tokens || cost) {
-            let info = '📊 '
-            if (tokens) {
-              info += `${tokens.input || 0}→${tokens.output || 0} tokens`
-              if (tokens.reasoning && tokens.reasoning > 0) {
-                info += ` (${tokens.reasoning} reasoning)`
-              }
-              if (tokens.cache?.read > 0 || tokens.cache?.write > 0) {
-                info += ` [cache: ${tokens.cache.read}r/${tokens.cache.write}w]`
-              }
-            }
-            if (cost && cost > 0) {
-              info += ` • $${cost.toFixed(4)}`
-            }
-            this.stateManager.addCost(
-              sessionId,
-              cost || 0,
-              tokens?.input || 0,
-              tokens?.output || 0,
-              tokens?.reasoning || 0,
-              tokens?.cache?.read || 0,
-              tokens?.cache?.write || 0
-            )
-            await this.sendWithRateLimit(chatId, info)
-          }
+          this.stateManager.addCost(
+            sessionId,
+            cost || 0,
+            tokens?.input || 0,
+            tokens?.output || 0,
+            tokens?.reasoning || 0,
+            tokens?.cache?.read || 0,
+            tokens?.cache?.write || 0
+          )
         }
       }
     }
+  }
+
+  private buildToolSummary(tool: string, part: any, runningTitle: string): string | null {
+    const icon = this.getToolIcon(tool)
+    const name = this.formatToolName(tool)
+    const status = part.state?.status
+    const stateData = part.state || {}
+    const output = stripAnsi(stateData.output || '')
+
+    if (status === 'error') {
+      const errorMsg = stripAnsi(stateData.error || 'Unknown error')
+      return `${icon} *${name}:* ❌ Failed — ${escapeMarkdown(errorMsg.substring(0, 200))}`
+    }
+
+    if (tool === 'bash') {
+      const exitCode = stateData.exitCode
+      const command = stateData.command || runningTitle || ''
+      if (exitCode !== undefined && exitCode !== 0) {
+        return `${icon} *${name}:* Exit code ${exitCode}`
+      }
+      if (output) {
+        const lines = output.split('\n').length
+        const size = output.length
+        let summary = `${icon} *${name}:*`
+        if (lines <= 3 && size <= 200) {
+          summary += `\n\`\`\`\n${escapeMarkdown(output.trim().substring(0, 200))}\n\`\`\``
+        } else if (lines > 0) {
+          summary += ` ${lines} lines, ${size} chars`
+        } else {
+          summary += ` completed`
+        }
+        return summary
+      }
+      return `${icon} *${name}*`
+    }
+
+    if (tool === 'read') {
+      if (output) {
+        const lines = output.split('\n').length
+        return `${icon} *${name}:* ${lines} lines`
+      }
+      return `${icon} *${name}:* ${escapeMarkdown(runningTitle?.substring(0, 100) || '')}`
+    }
+
+    if (tool === 'grep' || tool === 'glob') {
+      if (output) {
+        const matches = output.trim().split('\n').filter(l => l.trim()).length
+        return `${icon} *${name}:* ${matches} match${matches !== 1 ? 'es' : ''}`
+      }
+      return `${icon} *${name}:* ${escapeMarkdown(runningTitle?.substring(0, 100) || '')}`
+    }
+
+    if (output) {
+      const short = output.trim().substring(0, 150)
+      return `${icon} *${name}:* ${escapeMarkdown(short)}`
+    }
+
+    if (runningTitle) {
+      return `${icon} *${name}:* ${escapeMarkdown(runningTitle.substring(0, 100))}`
+    }
+
+    return `${icon} *${name}*`
   }
 
   private messagesAfterAnchor(messages: any[], anchorId?: string): any[] {

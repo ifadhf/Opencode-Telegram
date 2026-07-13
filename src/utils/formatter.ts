@@ -43,26 +43,49 @@ export function formatPermissionRequest(permission: PermissionRequest): string {
 export function splitMessage(text: string, maxLength = 4096): string[] {
   const chunks: string[] = []
   let currentChunk = ''
+  let inCodeBlock = false
+  let inInlineCode = false
 
-  const lines = text.split('\n')
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
 
-  for (let line of lines) {
-    // Handle extremely long lines by splitting them into smaller segments
-    while (line.length > maxLength) {
-      if (currentChunk) {
-        chunks.push(currentChunk)
-        currentChunk = ''
+    if (ch === '`') {
+      if (text.slice(i, i + 3) === '```') {
+        inCodeBlock = !inCodeBlock
+        i += 2
+      } else {
+        inInlineCode = !inInlineCode
       }
-      chunks.push(line.substring(0, maxLength))
-      line = line.substring(maxLength)
     }
 
-    if (currentChunk && currentChunk.length + line.length + 1 > maxLength) {
-      chunks.push(currentChunk)
-      currentChunk = line
-    } else {
-      currentChunk += (currentChunk ? '\n' : '') + line
+    if (currentChunk.length >= maxLength) {
+      if (inCodeBlock) {
+        currentChunk += '\n```'
+        chunks.push(currentChunk)
+        currentChunk = '```\n'
+      } else if (inInlineCode) {
+        currentChunk += '`'
+        chunks.push(currentChunk)
+        currentChunk = '`'
+      } else {
+        const lastNewline = currentChunk.lastIndexOf('\n')
+        if (lastNewline > maxLength * 0.7) {
+          chunks.push(currentChunk.substring(0, lastNewline))
+          currentChunk = currentChunk.substring(lastNewline + 1)
+        } else {
+          const lastSpace = currentChunk.lastIndexOf(' ')
+          if (lastSpace > 0) {
+            chunks.push(currentChunk.substring(0, lastSpace))
+            currentChunk = currentChunk.substring(lastSpace + 1)
+          } else {
+            chunks.push(currentChunk)
+            currentChunk = ''
+          }
+        }
+      }
     }
+
+    currentChunk += ch
   }
 
   if (currentChunk) {
