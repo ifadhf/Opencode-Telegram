@@ -68,8 +68,8 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 ### Fase 2 — Forum topics / multi-sesi (3–5 hari) — jantung UX ccbot
 
-- [ ] **Riset topologi server** (keputusan desain terbesar): 1 server OpenCode per project-dir (pool port) vs 1 server multi-directory (cek dukungan API OpenCode untuk directory per-request/per-session)
-- [ ] `state/manager.ts`: peta `topic_id ↔ {session_id, cwd, model, mode}` persisten
+- [x] **Riset topologi server** (keputusan desain terbesar): 1 server OpenCode per project-dir (pool port) vs 1 server multi-directory (cek dukungan API OpenCode untuk directory per-request/per-session)
+- [x] `state/manager.ts`: peta `topic_id ↔ {session_id, cwd, model, mode}` persisten
 - [ ] `handlers.ts`: routing pesan & notifikasi per `message_thread_id`
 - [ ] Topic baru → directory browser (inline keyboard) → buat/resume sesi
 - [ ] Topic ditutup/dihapus → lepas binding (+ tangani error "Message thread not found")
