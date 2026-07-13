@@ -79,8 +79,8 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 ### Fase 3 — Voice & riwayat (2–3 hari)
 
-- [ ] Voice note: unduh OGG dari Telegram → transkrip via API OpenAI-compatible (`OPENAI_API_KEY` + `OPENAI_BASE_URL`) → forward sebagai prompt
-- [ ] `/history`: baca pesan sesi dari API OpenCode, paginasi inline `◀ Older / Newer ▶` (terbaru dulu)
+- [x] Voice note: unduh OGG dari Telegram → transkrip via API OpenAI-compatible (`OPENAI_API_KEY` + `OPENAI_BASE_URL`) → forward sebagai prompt
+- [x] `/history`: baca pesan sesi dari API OpenCode, paginasi inline `◀ Older / Newer ▶` (terbaru dulu)
 
 ### Fase 4 — Poles & deploy (1–2 hari)
 
@@ -120,3 +120,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | 5 bug fatal diperbaiki (`443d5f6`: abort/switch-sesi/debounce/setMyCommands) + command menu; **F1 human test 9/9 PASS** — Fase 1 tervalidasi end-to-end |
 | 2026-07-14 | Dokumentasi dikoreksi: test plan f1→f0/f2→f1, status F2 di `docs/` dikembalikan ke "belum mulai" |
 | 2026-07-14 | **Fase 2 selesai** (`9cdbf2f`): StateManager topic-aware (TDD 16/16 PASS), MessageQueue per-topic, handlers/events routing per message_thread_id, /newtopic + directory browser, /status per-topic, filter direktori session picker, topic deletion handling. **Human test 8/8 PASS** — Fase 2 tervalidasi end-to-end. |
+| 2026-07-14 | **Fase 3 selesai** (`6edc7c9`): voice transcription (TranscriptionClient + OpenAI Whisper API + `:voice` handler), `/history` pagination (`paginateMessages`, `formatHistoryPage`, `buildHistoryKeyboard` + inline keyboard `◀ Older/Newer ▶`). **TDD 21/21 PASS.** |
