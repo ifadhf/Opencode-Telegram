@@ -119,4 +119,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | Service `opencode-tele.service` di-restart untuk memuat kode F1; dokumentasi disinkronkan; test script F2 (AI-agent) & test plan F1 (human) disiapkan |
 | 2026-07-14 | 5 bug fatal diperbaiki (`443d5f6`: abort/switch-sesi/debounce/setMyCommands) + command menu; **F1 human test 9/9 PASS** — Fase 1 tervalidasi end-to-end |
 | 2026-07-14 | Dokumentasi dikoreksi: test plan f1→f0/f2→f1, status F2 di `docs/` dikembalikan ke "belum mulai" |
-| 2026-07-14 | **Fase 2 selesai** (`9cdbf2f`): StateManager topic-aware (TDD 9/9 PASS), MessageQueue per-topic, handlers/events routing per message_thread_id, /newtopic + directory browser, /status per-topic, filter direktori session picker, topic deletion handling. Human test plan F2: 5 test case. |
+| 2026-07-14 | **Fase 2 selesai** (`9cdbf2f`): StateManager topic-aware (TDD 16/16 PASS), MessageQueue per-topic, handlers/events routing per message_thread_id, /newtopic + directory browser, /status per-topic, filter direktori session picker, topic deletion handling. **Human test 8/8 PASS** — Fase 2 tervalidasi end-to-end. |
