@@ -20,6 +20,16 @@ export function registerCommands(
   // Helper to check authorization
   const isAuthorized = (userId?: string) => userId === process.env.AUTHORIZED_USER_ID
 
+  // Helper to resolve session from topic or legacy chat context
+  function resolveSessionFromCtx(ctx: any): { sessionId?: string; threadId: number; cwd?: string } {
+    const threadId = ctx.message?.message_thread_id ?? 0
+    if (threadId > 0) {
+      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+      return { sessionId: binding?.sessionId, threadId, cwd: binding?.cwd }
+    }
+    return { sessionId: stateManager.getCurrentSession(ctx.chat.id), threadId: 0 }
+  }
+
   // Start command
   bot.command('start', async (ctx) => {
     if (!isAuthorized(ctx.from?.id.toString())) {
@@ -33,6 +43,7 @@ export function registerCommands(
       '/session - Create new session\n' +
       '/sessions - List recent sessions\n' +
       '/continue - Continue an old session\n' +
+      '/newtopic - Create session in a forum topic\n' +
       '/status - Show current session\n' +
       '/abort - Stop running task\n' +
       '/clear - Clear current session\n\n' +
@@ -67,14 +78,20 @@ export function registerCommands(
     log.info('User command', { command: '/session', args: ctx.match, userId: ctx.from?.id })
 
     const args = ctx.match as string
+    const threadId = ctx.message?.message_thread_id ?? 0
+
     if (args) {
       try {
-        const oldSessionId = stateManager.getCurrentSession(ctx.chat.id)
+        const { sessionId: oldId } = resolveSessionFromCtx(ctx)
         const session = await client.getSession(args)
-        if (oldSessionId && oldSessionId !== session.id && eventProcessor) {
-          await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat.id, '↪️ Session switched')
+        if (oldId && oldId !== session.id && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldId, ctx.chat.id, '↪️ Session switched', threadId)
         }
-        stateManager.setCurrentSession(ctx.chat.id, session.id)
+        if (threadId > 0) {
+          stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || '' })
+        } else {
+          stateManager.setCurrentSession(ctx.chat.id, session.id)
+        }
         await ctx.reply(`Selected session: \`${escapeMarkdown(session.id)}\``, {
           parse_mode: 'Markdown',
         })
@@ -83,12 +100,16 @@ export function registerCommands(
       }
     } else {
       try {
-        const oldSessionId = stateManager.getCurrentSession(ctx.chat.id)
+        const { sessionId: oldId } = resolveSessionFromCtx(ctx)
         const session = await client.createSession()
-        if (oldSessionId && oldSessionId !== session.id && eventProcessor) {
-          await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat.id, '↪️ Session switched')
+        if (oldId && oldId !== session.id && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldId, ctx.chat.id, '↪️ Session switched', threadId)
         }
-        stateManager.setCurrentSession(ctx.chat.id, session.id)
+        if (threadId > 0) {
+          stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || '' })
+        } else {
+          stateManager.setCurrentSession(ctx.chat.id, session.id)
+        }
         await ctx.reply(`Created new session: \`${escapeMarkdown(session.id)}\`\n\nSend any message to start!`, {
           parse_mode: 'Markdown',
         })
@@ -108,16 +129,22 @@ export function registerCommands(
     log.info('User command', { command: '/continue', userId: ctx.from?.id })
 
     try {
-      const sessions = await client.listSessions({ limit: 10 })
+      const threadId = ctx.message?.message_thread_id ?? 0
+      const cwd = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId)?.cwd : undefined
+      const sessions = await client.listSessions({ limit: 10, directory: cwd })
 
       if (sessions.length === 0) {
-        await ctx.reply('No sessions found. Use /session to create a new one.')
+        if (cwd) {
+          await ctx.reply(`No sessions found in \`${escapeMarkdown(cwd)}\`. Use /newtopic to create one.`, { parse_mode: 'Markdown' })
+        } else {
+          await ctx.reply('No sessions found. Use /session to create a new one.')
+        }
         return
       }
 
       const inlineKeyboard = sessions.map((s) => {
-        const title = s.title || s.id.slice(0, 20)
-        return [{ text: title, callback_data: `session:${s.id}` }]
+        const title = `${s.directory ? `[${s.directory.split('/').pop() || s.directory}] ` : ''}${s.title || s.id.slice(0, 20)}`
+        return [{ text: title.substring(0, 64), callback_data: `session:${s.id}` }]
       })
 
       await ctx.reply('*Select a session to continue:*', {
@@ -139,7 +166,9 @@ export function registerCommands(
     log.info('User command', { command: '/sessions', userId: ctx.from?.id })
 
     try {
-      const sessions = await client.listSessions({ limit: 10 })
+      const threadId = ctx.message?.message_thread_id ?? 0
+      const cwd = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId)?.cwd : undefined
+      const sessions = await client.listSessions({ limit: 10, directory: cwd })
       if (sessions.length === 0) {
         await ctx.reply('No sessions found.')
         return
@@ -167,15 +196,15 @@ export function registerCommands(
 
     log.info('User command', { command: '/abort', userId: ctx.from?.id })
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (!sessionId) {
-      await ctx.reply('No session selected.')
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
       return
     }
 
     try {
       await client.abortSession(sessionId)
-      if (eventProcessor) await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id)
+      if (eventProcessor) await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id, '🛑 Session aborted', threadId)
       await ctx.reply('🛑 Session aborted.')
     } catch (error) {
       await ctx.reply(`Failed to abort: ${(error as Error).message}`)
@@ -191,11 +220,15 @@ export function registerCommands(
 
     log.info('User command', { command: '/clear', userId: ctx.from?.id })
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (sessionId && eventProcessor) {
-      await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id, '🧹 Session cleared')
+      await eventProcessor.forceSessionIdle(sessionId, ctx.chat.id, '🧹 Session cleared', threadId)
     }
-    stateManager.clearChatState(ctx.chat.id)
+    if (threadId > 0) {
+      stateManager.clearTopicSession(ctx.chat.id, threadId)
+    } else {
+      stateManager.clearChatState(ctx.chat.id)
+    }
     await ctx.reply('Cleared current session, model, and mode settings.')
   })
 
@@ -208,37 +241,58 @@ export function registerCommands(
 
     log.info('User command', { command: '/status', userId: ctx.from?.id })
 
-    const chatState = stateManager.getChatState(ctx.chat.id)
+    const threadId = ctx.message?.message_thread_id ?? 0
+
+    let sessionId: string | undefined
+    let cwd = ''
+
+    if (threadId > 0) {
+      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+      if (!binding) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+        return
+      }
+      sessionId = binding.sessionId
+      cwd = binding.cwd
+    } else {
+      const chatState = stateManager.getChatState(ctx.chat.id)
+      sessionId = chatState.sessionId
+    }
+
+    if (!sessionId) {
+      if (threadId > 0) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      } else {
+        await ctx.reply('No session selected. Use /session to create one.')
+      }
+      return
+    }
 
     let message = '*Current Status*\n\n'
 
-    if (chatState.sessionId) {
-      try {
-        const session = await client.getSession(chatState.sessionId)
-        const sessionTitle = session.title || '(untitled)'
-        message += `*Session:*\n`
-        message += `ID: \`${escapeMarkdown(session.id)}\`\n`
-        message += `Title: ${escapeMarkdown(sessionTitle)}\n`
-        message += `Directory: \`${escapeMarkdown(session.directory)}\`\n`
+    try {
+      const session = await client.getSession(sessionId)
+      const sessionTitle = session.title || '(untitled)'
+      message += `*Session:*\n`
+      message += `ID: \`${escapeMarkdown(session.id)}\`\n`
+      message += `Title: ${escapeMarkdown(sessionTitle)}\n`
+      message += `Directory: \`${escapeMarkdown(session.directory)}\`\n`
 
-        if ((session as any).summary) {
-          const summary = (session as any).summary
-          message += `Changes: +${summary.additions || 0} -${summary.deletions || 0} (${summary.files || 0} files)\n`
-        }
-        message += '\n'
-      } catch {
-        message += `*Session:* \`${escapeMarkdown(chatState.sessionId)}\` (not found)\n\n`
+      if ((session as any).summary) {
+        const summary = (session as any).summary
+        message += `Changes: +${summary.additions || 0} -${summary.deletions || 0} (${summary.files || 0} files)\n`
       }
-    } else {
-      message += `*Session:* Not selected (use /session)\n\n`
+      message += '\n'
+    } catch {
+      message += `*Session:* \`${escapeMarkdown(sessionId)}\` (not found)\n\n`
     }
 
-    if (chatState.model) {
-      message += `*Model:*\n`
-      message += `${escapeMarkdown(chatState.model.providerId)}/${escapeMarkdown(chatState.model.modelId)}\n\n`
+    const model = stateManager.getCurrentModel(ctx.chat.id)
+    if (model) {
+      message += `*Model:* ${escapeMarkdown(model.providerId)}/${escapeMarkdown(model.modelId)}\n\n`
     } else {
       try {
-        const status = await client.getSessionStatus(chatState.sessionId || '')
+        const status = await client.getSessionStatus(sessionId)
         if (status?.model) {
           message += `*Model:* ${escapeMarkdown(status.model)} (from session)\n\n`
         } else {
@@ -249,11 +303,12 @@ export function registerCommands(
       }
     }
 
-    if (chatState.mode) {
-      message += `*Mode:* \`${escapeMarkdown(chatState.mode)}\`\n`
+    const mode = stateManager.getCurrentMode(ctx.chat.id)
+    if (mode) {
+      message += `*Mode:* \`${escapeMarkdown(mode)}\`\n`
     } else {
       try {
-        const status = await client.getSessionStatus(chatState.sessionId || '')
+        const status = await client.getSessionStatus(sessionId)
         if (status?.agent) {
           message += `*Mode:* \`${escapeMarkdown(status.agent)}\` (from session)\n`
         } else {
@@ -264,11 +319,9 @@ export function registerCommands(
       }
     }
 
-    if (chatState.sessionId) {
-      const cost = stateManager.getCost(chatState.sessionId)
-      if (cost && cost.totalCost > 0) {
-        message += `\n*Cost:* $${cost.totalCost.toFixed(4)} (${cost.messages} messages)\n`
-      }
+    const cost = stateManager.getCost(sessionId)
+    if (cost && cost.totalCost > 0) {
+      message += `\n*Cost:* $${cost.totalCost.toFixed(4)} (${cost.messages} messages)\n`
     }
 
     const promptCount = stateManager.getPromptCount(ctx.chat.id)
@@ -288,9 +341,9 @@ export function registerCommands(
 
     log.info('User command', { command: '/cost', userId: ctx.from?.id })
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (!sessionId) {
-      await ctx.reply('No session selected. Use /session to create one.')
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
       return
     }
 
@@ -321,9 +374,9 @@ export function registerCommands(
       return
     }
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (!sessionId) {
-      await ctx.reply('No session selected.')
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
       return
     }
 
@@ -358,9 +411,9 @@ export function registerCommands(
       return
     }
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (!sessionId) {
-      await ctx.reply('No session selected.')
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
       return
     }
 
@@ -780,9 +833,9 @@ export function registerCommands(
 
     log.info('User command', { command: '/working', userId: ctx.from?.id })
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
     if (!sessionId) {
-      await ctx.reply('No session selected.')
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
       return
     }
 
@@ -835,6 +888,92 @@ export function registerCommands(
     }
   })
 
+  // Newtopic command — create a session in a forum topic
+  bot.command('newtopic', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    const threadId = ctx.message?.message_thread_id ?? 0
+    if (threadId === 0) {
+      await ctx.reply('This command only works in forum topics. Use /session in direct chat.')
+      return
+    }
+
+    log.info('User command', { command: '/newtopic', threadId, userId: ctx.from?.id })
+
+    const args = (ctx.match as string || '').trim()
+
+    if (args) {
+      try {
+        const oldBinding = stateManager.getTopicSession(ctx.chat.id, threadId)
+        if (oldBinding && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat.id, '↪️ New session created')
+        }
+
+        const session = await client.createSession(args)
+        stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: args })
+
+        await ctx.reply(
+          `✅ *Session created for this topic*\n` +
+          `ID: \`${escapeMarkdown(session.id)}\`\n` +
+          `Directory: \`${escapeMarkdown(args)}\`\n\n` +
+          `Send any message to start!`,
+          { parse_mode: 'Markdown' }
+        )
+      } catch (error) {
+        await ctx.reply(`❌ Failed to create session: ${(error as Error).message}`)
+      }
+      return
+    }
+
+    try {
+      const homeDir = process.env.HOME || '/home/fadh'
+      const workspaceDir = `${homeDir}/workspace`
+
+      const dirs: Array<{ label: string; path: string }> = []
+
+      try {
+        const workspaceEntries = await client.listFiles(workspaceDir)
+        if (workspaceEntries.entries) {
+          for (const entry of workspaceEntries.entries.slice(0, 10)) {
+            if (entry.isDir && !entry.name.startsWith('.')) {
+              dirs.push({ label: `📁 ${entry.name}`, path: entry.path || `${workspaceDir}/${entry.name}` })
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+
+      if (dirs.length === 0) {
+        await ctx.reply(
+          'No directories found. Use `/newtopic <path>` to create a session directly.\n' +
+          'Example: `/newtopic /home/fadh/workspace/my-project`',
+          { parse_mode: 'Markdown' }
+        )
+        return
+      }
+
+      const inlineKeyboard = dirs.map(d => [{
+        text: d.label,
+        callback_data: `dir:${d.path}`,
+      }])
+
+      await ctx.reply(
+        '*Select a directory for this topic:*\n\n' +
+        `Or use \`/newtopic <path>\` for a custom directory.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        }
+      )
+    } catch (error) {
+      await ctx.reply(`Failed to list directories: ${(error as Error).message}`)
+    }
+  })
+
   // Help command
   bot.command('help', async (ctx) => {
     if (!isAuthorized(ctx.from?.id.toString())) {
@@ -851,6 +990,7 @@ export function registerCommands(
       '/session <id> - Select existing session\n' +
       '/sessions - List recent sessions\n' +
       '/continue - Continue old session (interactive)\n' +
+      '/newtopic - Create session in a forum topic\n' +
       '/status - Show current status\n' +
       '/working - Show what OpenCode is doing now\n' +
       '/abort - Stop running session\n' +

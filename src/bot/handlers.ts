@@ -6,6 +6,19 @@ import { EventProcessor } from '../opencode/events.js'
 import { MessageQueue } from './queue.js'
 import { getLogger } from '../utils/logger.js'
 
+function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
+  const threadId = ctx.message?.message_thread_id ?? 0
+  if (threadId > 0) {
+    const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+    return { sessionId: binding?.sessionId, threadId }
+  }
+  return { sessionId: stateManager.getCurrentSession(ctx.chat.id), threadId: 0 }
+}
+
+function getThreadId(ctx: any): number {
+  return ctx.message?.message_thread_id ?? ctx.callbackQuery?.message?.message_thread_id ?? 0
+}
+
 export function registerHandlers(
   bot: Bot,
   stateManager: StateManager,
@@ -24,9 +37,14 @@ export function registerHandlers(
       return
     }
 
-    const sessionId = stateManager.getCurrentSession(ctx.chat.id)
+    const threadId = getThreadId(ctx)
+    const { sessionId } = resolveSession(ctx, stateManager)
     if (!sessionId) {
-      await ctx.reply('No session selected. Use /session to create or select one.')
+      if (threadId > 0) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      } else {
+        await ctx.reply('No session selected. Use /session to create or select one.')
+      }
       return
     }
 
@@ -38,10 +56,10 @@ export function registerHandlers(
     }
 
     // If session is busy, queue the message
-    if (messageQueue.isBusy(ctx.chat.id)) {
+    if (messageQueue.isBusy(ctx.chat.id, threadId)) {
       try {
-        const position = messageQueue.getQueueLength(ctx.chat.id) + 1
-        await messageQueue.enqueue(ctx.chat.id, text)
+        const position = messageQueue.getQueueLength(ctx.chat.id, threadId) + 1
+        await messageQueue.enqueue(ctx.chat.id, text, threadId)
         await ctx.reply(`📋 Queued (position ${position}). Will process when current task finishes.`)
       } catch (error) {
         await ctx.reply(`❌ Failed to queue message: ${(error as Error).message}`)
@@ -60,13 +78,15 @@ export function registerHandlers(
     }
 
     // Mark session as busy
-    messageQueue.setBusy(ctx.chat.id)
+    messageQueue.setBusy(ctx.chat.id, threadId)
 
     // Send "working" message
-    const workingMsg = await ctx.reply('⏳ OpenCode is working...')
+    const replyOpts: any = {}
+    if (threadId > 0) replyOpts.message_thread_id = threadId
+    const workingMsg = await ctx.reply('⏳ OpenCode is working...', replyOpts)
 
     // Store the working message so we can update it when done
-    eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id)
+    eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
 
     try {
       // Send async message to OpenCode with model and mode selection
@@ -76,10 +96,10 @@ export function registerHandlers(
         agent: selectedMode,
       })
 
-      log.info('Sent to OpenCode')
+      log.info('Sent to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
     } catch (error) {
       log.error('Failed to send message', { error: (error as Error).message })
-      messageQueue.setIdle(ctx.chat.id)
+      messageQueue.setIdle(ctx.chat.id, threadId)
 
       await ctx.api.editMessageText(
         ctx.chat.id,
@@ -88,12 +108,12 @@ export function registerHandlers(
       )
 
       // Try to process queue in case there are waiting messages
-      const next = messageQueue.dequeue(ctx.chat.id)
+      const next = messageQueue.dequeue(ctx.chat.id, threadId)
       if (next) {
-        messageQueue.setBusy(ctx.chat.id)
+        messageQueue.setBusy(ctx.chat.id, threadId)
         try {
-          const newWorkingMsg = await ctx.reply('⏳ Processing next queued message...')
-          eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, newWorkingMsg.message_id)
+          const newWorkingMsg = await ctx.reply('⏳ Processing next queued message...', replyOpts)
+          eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, newWorkingMsg.message_id, threadId)
           await client.sendAsyncMessage(sessionId, next.text, {
             providerId: selectedModel?.providerId,
             modelId: selectedModel?.modelId,
@@ -101,7 +121,7 @@ export function registerHandlers(
           })
           next.resolve()
         } catch {
-          messageQueue.setIdle(ctx.chat.id)
+          messageQueue.setIdle(ctx.chat.id, threadId)
           next.reject(error as Error)
         }
       }
@@ -156,14 +176,61 @@ export function registerHandlers(
     // Session selection callbacks
     if (data.startsWith('session:')) {
       const sessionId = data.replace('session:', '')
-      const oldSessionId = stateManager.getCurrentSession(ctx.chat!.id)
-      if (oldSessionId && oldSessionId !== sessionId) {
-        await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat!.id, '↪️ Session switched')
+      const threadId = getThreadId(ctx)
+
+      if (threadId > 0) {
+        const oldBinding = stateManager.getTopicSession(ctx.chat!.id, threadId)
+        if (oldBinding && oldBinding.sessionId !== sessionId) {
+          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat!.id, '↪️ Session switched')
+        }
+        const session = await client.getSession(sessionId).catch(() => null)
+        const cwd = session?.directory || ''
+        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId, cwd })
+      } else {
+        const oldSessionId = stateManager.getCurrentSession(ctx.chat!.id)
+        if (oldSessionId && oldSessionId !== sessionId) {
+          await eventProcessor.forceSessionIdle(oldSessionId, ctx.chat!.id, '↪️ Session switched')
+        }
+        stateManager.setCurrentSession(ctx.chat!.id, sessionId)
       }
-      stateManager.setCurrentSession(ctx.chat!.id, sessionId)
 
       await ctx.answerCallbackQuery('Session selected')
       await ctx.editMessageText(`✅ Session selected: \`${sessionId}\``, { parse_mode: 'Markdown' })
+      return
+    }
+
+    // Directory selection callbacks (for /newtopic)
+    if (data.startsWith('dir:')) {
+      const directory = data.replace('dir:', '')
+      const threadId = getThreadId(ctx)
+
+      if (threadId === 0) {
+        await ctx.answerCallbackQuery('This command only works in forum topics')
+        return
+      }
+
+      try {
+        const oldBinding = stateManager.getTopicSession(ctx.chat!.id, threadId)
+        if (oldBinding) {
+          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat!.id, '↪️ New session created')
+        }
+
+        const session = await client.createSession(directory)
+        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId: session.id, cwd: directory })
+
+        await ctx.answerCallbackQuery('Session created')
+        await ctx.editMessageText(
+          `✅ *New session created*\n` +
+          `ID: \`${session.id}\`\n` +
+          `Directory: \`${directory}\`\n\n` +
+          `Send any message to start!`,
+          { parse_mode: 'Markdown' }
+        )
+      } catch (error) {
+        log.error('Failed to create topic session', { error: (error as Error).message })
+        await ctx.answerCallbackQuery('Failed')
+        await ctx.editMessageText(`❌ Failed to create session: ${(error as Error).message}`)
+      }
       return
     }
 

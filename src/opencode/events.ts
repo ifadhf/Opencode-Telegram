@@ -8,6 +8,7 @@ import { getLogger } from '../utils/logger.js'
 
 interface BusySessionInfo {
   chatId: number
+  threadId: number
   sessionId: string
   anchorMessageId?: string
   processedPartIds: Set<string>
@@ -36,11 +37,11 @@ const COMPLETION_DEBOUNCE_MS = 5000
 
 export class EventProcessor {
   private running = false
-  private workingSessions = new Map<string, { chatId: number; messageId: number; statusMessageId?: number }>()
+  private workingSessions = new Map<string, { chatId: number; threadId: number; messageId: number; statusMessageId?: number }>()
   private consecutiveErrors = 0
   private maxConsecutiveErrors = 10
   private busySessions = new Map<string, BusySessionInfo>()
-  private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number }>()
+  private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number; threadId: number }>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
@@ -68,10 +69,48 @@ export class EventProcessor {
       try {
         await this.permissionHandler.checkPendingPermissions().catch(() => {})
 
+        // Discover busy sessions via topic bindings
+        const topicBindings = this.stateManager.getAllTopicBindings()
+        for (const binding of topicBindings) {
+          const { chatId, threadId, sessionId } = binding
+          const isBusy = this.messageQueue.isBusy(chatId, threadId)
+
+          if (isBusy && !this.busySessions.has(sessionId)) {
+            try {
+              const messages = await this.client.getMessages(sessionId, 50)
+              const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
+              const lastUser = [...messages].reverse().find(m => m.role === 'user')
+              this.busySessions.set(sessionId, {
+                chatId,
+                threadId,
+                sessionId,
+                anchorMessageId: lastUser?.id,
+                processedPartIds: new Set(),
+                processedStepFinishIds: new Set(),
+                processingTools: new Map(),
+                startedAt: Date.now(),
+                lastActivityAt: Date.now(),
+                idleProcessing: false,
+                lastTodoHash: this.hashTodos(todos),
+                lastWorkingStatus: '',
+                lastToolCall: '',
+                stepStartSeen: false,
+                currentStepTitle: '',
+              })
+            } catch {
+              // Ignore - will retry next poll
+            }
+          } else if (!isBusy) {
+            this.busySessions.delete(sessionId)
+          }
+        }
+
+        // Discover busy sessions via legacy chatId bindings (skip already tracked by topic)
         const chatIds = this.stateManager.getAllChatIds()
         for (const chatId of chatIds) {
           const sessionId = this.stateManager.getCurrentSession(chatId)
           if (!sessionId) continue
+          if (this.busySessions.has(sessionId)) continue
 
           const isBusy = this.messageQueue.isBusy(chatId)
 
@@ -79,10 +118,10 @@ export class EventProcessor {
             try {
               const messages = await this.client.getMessages(sessionId, 50)
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
-              // Anchor at the just-sent user prompt: only messages after it are "new"
               const lastUser = [...messages].reverse().find(m => m.role === 'user')
               this.busySessions.set(sessionId, {
                 chatId,
+                threadId: 0,
                 sessionId,
                 anchorMessageId: lastUser?.id,
                 processedPartIds: new Set(),
@@ -126,15 +165,15 @@ export class EventProcessor {
 
             if (lastIsNew && last.role === 'assistant' && (last.time?.completed || (last as any).finish)) {
               if (!this.pendingCompletions.has(sessionId)) {
-                log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId })
+                log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId, threadId: busyInfo.threadId })
 
                 const debounceTimer = setTimeout(async () => {
                   this.pendingCompletions.delete(sessionId)
                   this.busySessions.delete(sessionId)
-                  await this.processSessionIdle(sessionId, busyInfo.chatId)
+                  await this.processSessionIdle(sessionId, busyInfo.chatId, busyInfo.threadId)
                 }, COMPLETION_DEBOUNCE_MS)
 
-                this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId })
+                this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId, threadId: busyInfo.threadId })
               }
             } else {
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
@@ -148,7 +187,7 @@ export class EventProcessor {
           } catch (error) {
             log.warn('Failed to poll busy session', { sessionId, error: (error as Error).message })
             this.busySessions.delete(sessionId)
-            this.messageQueue.setIdle(busyInfo.chatId)
+            this.messageQueue.setIdle(busyInfo.chatId, busyInfo.threadId)
 
             const pendingCompletion = this.pendingCompletions.get(sessionId)
             if (pendingCompletion) {
@@ -176,7 +215,7 @@ export class EventProcessor {
         }
 
         for (const [sessionId, busyInfo] of [...this.busySessions.entries()]) {
-          if (!this.messageQueue.isBusy(busyInfo.chatId)) {
+          if (!this.messageQueue.isBusy(busyInfo.chatId, busyInfo.threadId)) {
             this.busySessions.delete(sessionId)
           }
         }
@@ -187,7 +226,7 @@ export class EventProcessor {
           if (age > this.SESSION_TIMEOUT_MS || inactive > this.SESSION_TIMEOUT_MS) {
             log.warn('Session timed out, forcing idle', { sessionId, age, inactive })
             this.busySessions.delete(sessionId)
-            this.messageQueue.setIdle(busyInfo.chatId)
+            this.messageQueue.setIdle(busyInfo.chatId, busyInfo.threadId)
 
             const pendingCompletion = this.pendingCompletions.get(sessionId)
             if (pendingCompletion) {
@@ -205,12 +244,15 @@ export class EventProcessor {
               this.workingSessions.delete(sessionId)
             }
 
-            await this.processSessionIdle(sessionId, busyInfo.chatId)
+            await this.processSessionIdle(sessionId, busyInfo.chatId, busyInfo.threadId)
           }
         }
 
         for (const chatId of chatIds) {
           this.messageQueue.purgeStale(chatId)
+        }
+        for (const binding of topicBindings) {
+          this.messageQueue.purgeStale(binding.chatId, binding.threadId)
         }
 
         this.consecutiveErrors = 0
@@ -237,7 +279,7 @@ export class EventProcessor {
 
       if (currentHash !== busyInfo.lastTodoHash && todos.length > 0) {
         busyInfo.lastTodoHash = currentHash
-        await this.sendTodoUpdate(busyInfo.chatId, todos)
+        await this.sendTodoUpdate(busyInfo.chatId, busyInfo.threadId, todos)
       }
     } catch {
       // Ignore todo poll errors
@@ -307,7 +349,7 @@ export class EventProcessor {
     return `🔧 *Working...*\n\n${parts.join('\n')}`
   }
 
-  private async sendTodoUpdate(chatId: number, todos: TodoItem[]): Promise<void> {
+  private async sendTodoUpdate(chatId: number, threadId: number, todos: TodoItem[]): Promise<void> {
     const statusIcon: Record<string, string> = {
       completed: '✅', in_progress: '🔄', pending: '⬜', cancelled: '❌',
     }
@@ -322,14 +364,14 @@ export class EventProcessor {
       message += `${icon} ${escapeMarkdown(content)}\n`
     }
 
-    await this.sendWithRateLimit(chatId, message, { parse_mode: 'Markdown' })
+    await this.sendWithRateLimit(chatId, threadId, message, { parse_mode: 'Markdown' })
   }
 
   private hashTodos(todos: TodoItem[]): string {
     return todos.map(t => `${t.status}:${t.content}`).join('|')
   }
 
-  private async processSessionIdle(sessionId: string, chatId: number, statusText = '✅ Task completed!'): Promise<void> {
+  private async processSessionIdle(sessionId: string, chatId: number, threadId: number, statusText = '✅ Task completed!'): Promise<void> {
     const existingBusy = this.busySessions.get(sessionId)
     if (existingBusy?.idleProcessing) return
     if (existingBusy) {
@@ -351,17 +393,20 @@ export class EventProcessor {
       this.workingSessions.delete(sessionId)
     }
 
-    this.messageQueue.setIdle(chatId)
+    this.messageQueue.setIdle(chatId, threadId)
 
-    const next = this.messageQueue.dequeue(chatId)
+    const sendOpts: any = {}
+    if (threadId > 0) sendOpts.message_thread_id = threadId
+
+    const next = this.messageQueue.dequeue(chatId, threadId)
     if (next) {
-      this.messageQueue.setBusy(chatId)
+      this.messageQueue.setBusy(chatId, threadId)
       const selectedModel = this.stateManager.getCurrentModel(chatId)
       const selectedMode = this.stateManager.getCurrentMode(chatId)
 
       try {
-        const workingMsg = await this.bot.api.sendMessage(chatId, '⏳ Processing next message...')
-        this.setWorkingMessage(sessionId, chatId, workingMsg.message_id)
+        const workingMsg = await this.bot.api.sendMessage(chatId, '⏳ Processing next message...', sendOpts)
+        this.setWorkingMessage(sessionId, chatId, workingMsg.message_id, threadId)
 
         await this.client.sendAsyncMessage(sessionId, next.text, {
           providerId: selectedModel?.providerId,
@@ -371,12 +416,12 @@ export class EventProcessor {
         next.resolve()
       } catch (error) {
         getLogger().error('Failed to process queued message', { error: (error as Error).message })
-        await this.bot.api.sendMessage(chatId, `❌ Error: ${(error as Error).message}`).catch(() => {})
+        await this.bot.api.sendMessage(chatId, `❌ Error: ${(error as Error).message}`, sendOpts).catch(() => {})
         next.reject(error as Error)
-        this.messageQueue.setIdle(chatId)
+        this.messageQueue.setIdle(chatId, threadId)
       }
     } else {
-      await this.bot.api.sendMessage(chatId, '✅ *Selesai — menunggu input*', { parse_mode: 'Markdown' }).catch(() => {})
+      await this.bot.api.sendMessage(chatId, '✅ *Selesai — menunggu input*', { ...sendOpts, parse_mode: 'Markdown' }).catch(() => {})
     }
   }
 
@@ -427,6 +472,7 @@ export class EventProcessor {
             busyInfo.stepStartSeen = true
             await this.sendWithRateLimit(
               chatId,
+              busyInfo.threadId,
               `🚀 *Step started:* ${escapeMarkdown(stepTitle)}`,
               { parse_mode: 'Markdown' }
             )
@@ -441,6 +487,7 @@ export class EventProcessor {
           const displayText = thinking.length > maxLen ? thinking.substring(0, maxLen) + '...' : thinking
           await this.sendWithRateLimit(
             chatId,
+            busyInfo.threadId,
             `🤔 *Thinking:*\n${escapeMarkdown(displayText)}`,
             { parse_mode: 'Markdown' }
           )
@@ -453,7 +500,7 @@ export class EventProcessor {
           if (text) {
             const chunks = splitMessage(`📝 *Response:*\n${escapeMarkdown(text)}`)
             for (const chunk of chunks) {
-              await this.sendWithRateLimit(chatId, chunk, { parse_mode: 'Markdown' })
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'Markdown' })
             }
           }
         }
@@ -477,6 +524,7 @@ export class EventProcessor {
               busyInfo.lastToolCall = toolKey
               await this.sendWithRateLimit(
                 chatId,
+                busyInfo.threadId,
                 `⏳ ${icon} *${this.formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
                 { parse_mode: 'Markdown' }
               )
@@ -488,7 +536,7 @@ export class EventProcessor {
 
             const summary = this.buildToolSummary(toolName, part, runningEntry.title)
             if (summary) {
-              await this.sendWithRateLimit(chatId, summary, { parse_mode: 'Markdown' })
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, summary, { parse_mode: 'Markdown' })
             }
           }
         }
@@ -515,7 +563,7 @@ export class EventProcessor {
               if (cost && cost > 0) {
                 info += ` • $${cost.toFixed(4)}`
               }
-              await this.sendWithRateLimit(chatId, info)
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, info)
             }
           }
 
@@ -603,16 +651,26 @@ export class EventProcessor {
     return idx >= 0 ? messages.slice(idx + 1) : messages
   }
 
-  private async sendWithRateLimit(chatId: number, text: string, options?: any): Promise<void> {
+  private async sendWithRateLimit(chatId: number, threadId: number, text: string, options?: any): Promise<void> {
     try {
-      await this.bot.api.sendMessage(chatId, text, options)
+      const sendOpts = { ...options }
+      if (threadId > 0) sendOpts.message_thread_id = threadId
+      await this.bot.api.sendMessage(chatId, text, sendOpts)
     } catch (error: any) {
+      if (error.description?.includes('message thread not found') && threadId > 0) {
+        getLogger().warn('Topic deleted, clearing binding', { chatId, threadId })
+        this.messageQueue.clear(chatId, threadId)
+        this.stateManager.clearTopicSession(chatId, threadId)
+        return
+      }
       if (error.description?.includes('rate limit') || error.error_code === 429) {
         const retryAfter = error.parameters?.retry_after || 1
         getLogger().warn('Telegram rate limited, waiting', { retryAfter })
         await new Promise(resolve => setTimeout(resolve, retryAfter * 1000))
         try {
-          await this.bot.api.sendMessage(chatId, text, options)
+          const sendOpts = { ...options }
+          if (threadId > 0) sendOpts.message_thread_id = threadId
+          await this.bot.api.sendMessage(chatId, text, sendOpts)
         } catch {
           // Give up on this message
         }
@@ -624,18 +682,18 @@ export class EventProcessor {
     this.running = false
   }
 
-  setWorkingMessage(sessionId: string, chatId: number, messageId: number): void {
-    this.workingSessions.set(sessionId, { chatId, messageId })
+  setWorkingMessage(sessionId: string, chatId: number, messageId: number, threadId = 0): void {
+    this.workingSessions.set(sessionId, { chatId, threadId, messageId })
   }
 
-  async forceSessionIdle(sessionId: string, chatId: number, statusText = '🛑 Task aborted'): Promise<void> {
+  async forceSessionIdle(sessionId: string, chatId: number, statusText = '🛑 Task aborted', threadId = 0): Promise<void> {
     this.busySessions.delete(sessionId)
     const pending = this.pendingCompletions.get(sessionId)
     if (pending) {
       clearTimeout(pending.debounceTimer)
       this.pendingCompletions.delete(sessionId)
     }
-    await this.processSessionIdle(sessionId, chatId, statusText)
+    await this.processSessionIdle(sessionId, chatId, threadId, statusText)
   }
 
   getWorkingStatus(sessionId: string): string | null {
@@ -655,23 +713,34 @@ export class EventProcessor {
     return parts.join(' | ')
   }
 
+  private resolveSessionChat(sessionId: string): { chatId: number; threadId: number } | undefined {
+    const topic = this.stateManager.getTopicBySession(sessionId)
+    if (topic) return topic
+    const chatId = this.stateManager.getChatIdForSession(sessionId)
+    if (chatId !== undefined) return { chatId, threadId: 0 }
+    return undefined
+  }
+
   private async handleSessionError(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     const errorName = event.error?.name || 'Error'
     const errorMsg = stripAnsi(event.error?.message || 'Unknown error')
 
+    const opts: any = { parse_mode: 'Markdown' }
+    if (target.threadId > 0) opts.message_thread_id = target.threadId
+
     await this.bot.api.sendMessage(
-      chatId,
+      target.chatId,
       `⚠️ *${escapeMarkdown(errorName)}*\n${escapeMarkdown(errorMsg.substring(0, 300))}`,
-      { parse_mode: 'Markdown' }
+      opts
     ).catch(() => {})
   }
 
   private async handleSessionDiff(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     const diffs = event.diff || []
     if (diffs.length === 0) return
@@ -687,20 +756,20 @@ export class EventProcessor {
 
     const chunks = splitMessage(message)
     for (const chunk of chunks) {
-      await this.sendWithRateLimit(chatId, chunk, { parse_mode: 'Markdown' })
+      await this.sendWithRateLimit(target.chatId, target.threadId, chunk, { parse_mode: 'Markdown' })
     }
   }
 
   private async handleSessionUpdated(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     const info = event.info
     if (!info) return
 
     if (info.title) {
       await this.sendWithRateLimit(
-        chatId,
+        target.chatId, target.threadId,
         `📝 *Session title:* ${escapeMarkdown(info.title)}`,
         { parse_mode: 'Markdown' }
       )
@@ -710,7 +779,7 @@ export class EventProcessor {
       const s = info.summary
       if (s.additions || s.deletions) {
         await this.sendWithRateLimit(
-          chatId,
+          target.chatId, target.threadId,
           `📊 Changes: +${s.additions || 0} -${s.deletions || 0} (${s.files || 0} files)`,
           { parse_mode: 'Markdown' }
         )
@@ -719,19 +788,19 @@ export class EventProcessor {
   }
 
   private async handleSessionCompacted(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     await this.sendWithRateLimit(
-      chatId,
+      target.chatId, target.threadId,
       '📦 *Context compacted* — older messages summarized to save space.',
       { parse_mode: 'Markdown' }
     )
   }
 
   private async handleQuestionAsked(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     const log = getLogger()
     log.info('Question asked', { questionId: event.id, sessionID: event.sessionID })
@@ -753,35 +822,45 @@ export class EventProcessor {
         callback_data: `q:reject:${event.id}`,
       }])
 
-      await this.bot.api.sendMessage(chatId, message, {
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: inlineKeyboard },
-      }).catch(error => {
+      const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
+      if (target.threadId > 0) opts.message_thread_id = target.threadId
+
+      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
         log.error('Failed to send question', { error: (error as Error).message })
       })
     } else {
       message += '\n\n_Reply to this message with your answer._'
-      await this.bot.api.sendMessage(chatId, message, { parse_mode: 'Markdown' }).catch(error => {
+      const opts: any = { parse_mode: 'Markdown' }
+      if (target.threadId > 0) opts.message_thread_id = target.threadId
+      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
         log.error('Failed to send question', { error: (error as Error).message })
       })
     }
   }
 
   private async handleTodoUpdated(event: any): Promise<void> {
-    const chatId = this.stateManager.getChatIdForSession(event.sessionID)
-    if (!chatId) return
+    const target = this.resolveSessionChat(event.sessionID)
+    if (!target) return
 
     const todos: TodoItem[] = event.todos || []
     if (todos.length === 0) return
 
-    await this.sendTodoUpdate(chatId, todos)
+    await this.sendTodoUpdate(target.chatId, target.threadId, todos)
   }
 
   private async handleUpdateAvailable(event: any): Promise<void> {
     const chatIds = this.stateManager.getAllChatIds()
     for (const chatId of chatIds) {
       await this.sendWithRateLimit(
-        chatId,
+        chatId, 0,
+        `🔔 *Update Available*: OpenCode \`${escapeMarkdown(event.version || 'new version')}\` is available!`,
+        { parse_mode: 'Markdown' }
+      )
+    }
+    const topicBindings = this.stateManager.getAllTopicBindings()
+    for (const binding of topicBindings) {
+      await this.sendWithRateLimit(
+        binding.chatId, binding.threadId,
         `🔔 *Update Available*: OpenCode \`${escapeMarkdown(event.version || 'new version')}\` is available!`,
         { parse_mode: 'Markdown' }
       )

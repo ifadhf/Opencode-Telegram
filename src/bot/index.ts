@@ -55,6 +55,7 @@ export class TelegramBot {
       { command: 'session', description: 'Create new session' },
       { command: 'sessions', description: 'List recent sessions' },
       { command: 'continue', description: 'Continue an old session' },
+      { command: 'newtopic', description: 'Create session in a forum topic' },
       { command: 'status', description: 'Show current session status' },
       { command: 'working', description: 'Show what OpenCode is doing now' },
       { command: 'abort', description: 'Stop running task' },

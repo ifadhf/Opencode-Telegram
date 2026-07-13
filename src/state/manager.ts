@@ -347,6 +347,19 @@ export class StateManager {
     this.save()
   }
 
+  getAllTopicBindings(): Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> {
+    const results: Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> = []
+    for (const [key, binding] of this.state.topicBindings) {
+      const [chatIdStr, threadIdStr] = key.split(':')
+      results.push({
+        chatId: parseInt(chatIdStr, 10),
+        threadId: parseInt(threadIdStr, 10),
+        ...binding,
+      })
+    }
+    return results
+  }
+
   flushSave(): Promise<void> {
     return this.saveQueue
   }

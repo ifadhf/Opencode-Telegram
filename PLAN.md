@@ -70,10 +70,10 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 - [x] **Riset topologi server** (keputusan desain terbesar): 1 server OpenCode per project-dir (pool port) vs 1 server multi-directory (cek dukungan API OpenCode untuk directory per-request/per-session)
 - [x] `state/manager.ts`: peta `topic_id ↔ {session_id, cwd, model, mode}` persisten
-- [ ] `handlers.ts`: routing pesan & notifikasi per `message_thread_id`
-- [ ] Topic baru → directory browser (inline keyboard) → buat/resume sesi
-- [ ] Topic ditutup/dihapus → lepas binding (+ tangani error "Message thread not found")
-- [ ] `/status` per-topic (sesi, model, mode, cwd)
+- [x] `handlers.ts`: routing pesan & notifikasi per `message_thread_id`
+- [x] Topic baru → directory browser (inline keyboard) → buat/resume sesi
+- [x] Topic ditutup/dihapus → lepas binding (+ tangani error "Message thread not found")
+- [x] `/status` per-topic (sesi, model, mode, cwd)
 
 **Selesai jika:** 2 topic berjalan paralel di 2 project berbeda, notifikasi tidak tertukar.
 
