@@ -21,11 +21,11 @@ export function registerCommands(
   const isAuthorized = (userId?: string) => userId === process.env.AUTHORIZED_USER_ID
 
   // Helper to resolve session from topic or legacy chat context
-  function resolveSessionFromCtx(ctx: any): { sessionId?: string; threadId: number; cwd?: string } {
+  function resolveSessionFromCtx(ctx: any): { sessionId?: string; threadId: number; cwd?: string; model?: { providerId: string; modelId: string }; mode?: string } {
     const threadId = ctx.message?.message_thread_id ?? 0
     if (threadId > 0) {
       const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-      return { sessionId: binding?.sessionId, threadId, cwd: binding?.cwd }
+      return { sessionId: binding?.sessionId, threadId, cwd: binding?.cwd, model: binding?.model, mode: binding?.mode }
     }
     return { sessionId: stateManager.getCurrentSession(ctx.chat.id), threadId: 0 }
   }
@@ -287,7 +287,9 @@ export function registerCommands(
       message += `*Session:* \`${escapeMarkdown(sessionId)}\` (not found)\n\n`
     }
 
-    const model = stateManager.getCurrentModel(ctx.chat.id)
+    const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+    const topicModel = binding?.model
+    const model = topicModel || stateManager.getCurrentModel(ctx.chat.id)
     if (model) {
       message += `*Model:* ${escapeMarkdown(model.providerId)}/${escapeMarkdown(model.modelId)}\n\n`
     } else {
@@ -303,7 +305,8 @@ export function registerCommands(
       }
     }
 
-    const mode = stateManager.getCurrentMode(ctx.chat.id)
+    const topicMode = binding?.mode
+    const mode = topicMode || stateManager.getCurrentMode(ctx.chat.id)
     if (mode) {
       message += `*Mode:* \`${escapeMarkdown(mode)}\`\n`
     } else {
@@ -448,7 +451,14 @@ export function registerCommands(
 
     log.info('User command', { command: '/files', args: ctx.match, userId: ctx.from?.id })
 
-    const dirPath = (ctx.match as string || '').trim() || undefined
+    let dirPath = (ctx.match as string || '').trim() || undefined
+    if (!dirPath) {
+      const threadId = ctx.message?.message_thread_id ?? 0
+      if (threadId > 0) {
+        const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+        dirPath = binding?.cwd
+      }
+    }
 
     try {
       const result = await client.listFiles(dirPath)
@@ -680,7 +690,9 @@ export function registerCommands(
     log.info('User command', { command: '/model', args, userId: ctx.from?.id })
 
     if (!args) {
-      const currentModel = stateManager.getCurrentModel(ctx.chat.id)
+      const threadId = ctx.message?.message_thread_id ?? 0
+      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+      const currentModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
 
       let message = ''
       if (currentModel) {
@@ -715,7 +727,18 @@ export function registerCommands(
     const providerId = parts[0]
     const modelId = parts.slice(1).join(' ')
 
-    stateManager.setCurrentModel(ctx.chat.id, providerId, modelId)
+    const threadId = ctx.message?.message_thread_id ?? 0
+    if (threadId > 0) {
+      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+      if (binding) {
+        stateManager.setTopicModel(ctx.chat.id, threadId, providerId, modelId)
+      } else {
+        await ctx.reply('No session bound to this topic. Use /newtopic first.')
+        return
+      }
+    } else {
+      stateManager.setCurrentModel(ctx.chat.id, providerId, modelId)
+    }
 
     await ctx.reply(
       `✅ *Model selected:*\n\`${escapeMarkdown(providerId)}/${escapeMarkdown(modelId)}\``,
@@ -787,7 +810,9 @@ export function registerCommands(
     log.info('User command', { command: '/mode', args, userId: ctx.from?.id })
 
     if (!args) {
-      const currentMode = stateManager.getCurrentMode(ctx.chat.id)
+      const threadId = ctx.message?.message_thread_id ?? 0
+      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+      const currentMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
 
       let message = ''
       if (currentMode) {
@@ -816,7 +841,18 @@ export function registerCommands(
       return
     }
 
-    stateManager.setCurrentMode(ctx.chat.id, args)
+    const threadId = ctx.message?.message_thread_id ?? 0
+    if (threadId > 0) {
+      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+      if (binding) {
+        stateManager.setTopicMode(ctx.chat.id, threadId, args)
+      } else {
+        await ctx.reply('No session bound to this topic. Use /newtopic first.')
+        return
+      }
+    } else {
+      stateManager.setCurrentMode(ctx.chat.id, args)
+    }
 
     await ctx.reply(
       `✅ *Mode selected:* \`${escapeMarkdown(args)}\``,

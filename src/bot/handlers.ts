@@ -67,9 +67,10 @@ export function registerHandlers(
       return
     }
 
-    // Get selected model and mode if any
-    const selectedModel = stateManager.getCurrentModel(ctx.chat.id)
-    const selectedMode = stateManager.getCurrentMode(ctx.chat.id)
+    // Get selected model and mode — topic-specific takes priority
+    const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+    const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
+    const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
 
     // Increment prompt counter
     const count = stateManager.incrementPromptCount(ctx.chat.id)

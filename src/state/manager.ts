@@ -347,6 +347,24 @@ export class StateManager {
     this.save()
   }
 
+  setTopicModel(chatId: number, threadId: number, providerId: string, modelId: string): void {
+    const key = this.topicKey(chatId, threadId)
+    const binding = this.state.topicBindings.get(key)
+    if (binding) {
+      binding.model = { providerId, modelId }
+      this.save()
+    }
+  }
+
+  setTopicMode(chatId: number, threadId: number, mode: string): void {
+    const key = this.topicKey(chatId, threadId)
+    const binding = this.state.topicBindings.get(key)
+    if (binding) {
+      binding.mode = mode
+      this.save()
+    }
+  }
+
   getAllTopicBindings(): Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> {
     const results: Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> = []
     for (const [key, binding] of this.state.topicBindings) {
