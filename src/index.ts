@@ -203,7 +203,7 @@ async function main() {
   // Create and start bot
   console.log('🚀 Starting Telegram bot...')
   console.log(`📡 Connecting to OpenCode at ${botConfig.openCodeUrl}`)
-  const bot = new TelegramBot(botConfig, openCodeServer)
+  const bot = new TelegramBot(botConfig)
 
   // Handle graceful shutdown
   let shuttingDown = false
