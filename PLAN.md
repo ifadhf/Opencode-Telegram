@@ -46,14 +46,14 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 ### Fase 0 — Fondasi & baseline (~½ hari)
 
-- [ ] Clone fork lokal, `npm install`, `npm run build`, `npm run typecheck`
-- [ ] Install backend: `npm i -g opencode-ai` (pin versi, catat di README)
-- [ ] Buat bot uji via @BotFather, jalankan `opencode-tele` end-to-end di project dummy
-- [ ] Catat baseline: format pesan sekarang, perilaku command, event SSE yang benar-benar diterima
-- [ ] Setup remote: `origin` = fork ini, `upstream` = vineetkishore01 (untuk sync)
-- [ ] (Opsional) rebranding `opencode-tele` → nama baru (kandidat: `ocbot`) — bisa ditunda
+- [x] Clone fork lokal, `npm install`, `npm run build`, `npm run typecheck`
+- [x] Install backend: `npm i -g opencode-ai` (pin versi, catat di README)
+- [x] Buat bot uji via @BotFather, jalankan `opencode-tele` end-to-end di project dummy
+- [x] Catat baseline: format pesan sekarang, perilaku command, event SSE yang benar-benar diterima
+- [x] Setup remote: `origin` = fork ini, `upstream` = vineetkishore01 (untuk sync)
+- [ ] (Opsional) rebranding `opencode-tele` → nama baru (kandidat: `ocbot`) — ditunda
 
-**Selesai jika:** prompt dari Telegram dijawab OpenCode end-to-end di mesin dev.
+**Selesai jika:** prompt dari Telegram dijawab OpenCode end-to-end di mesin dev. ✅ (2026-07-13, 5/5 test PASS)
 
 ### Fase 1 — Poles notifikasi + completion notif (1–2 hari) — quick win
 
@@ -114,4 +114,6 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | Tanggal | Progress |
 |---|---|
 | 2026-07-13 | Fork dibuat, development plan disusun |
-| 2026-07-13 | Fase 1 selesai: tool summaries, SHOW_THINKING/SHOW_TOOL_CALLS/SHOW_TOKENS flags, completion debounce 5dtk, HTML-aware splitting |
+| 2026-07-13 | Fase 0 selesai: build/typecheck OK, bot uji e2e, 2 bug relay diperbaiki (`37d1b7b`), 5/5 test PASS |
+| 2026-07-13 | Fase 1 selesai: tool summaries, SHOW_THINKING/SHOW_TOOL_CALLS/SHOW_TOKENS flags, completion debounce 5dtk, HTML-aware splitting (`b66c3f1`) |
+| 2026-07-14 | Service `opencode-tele.service` di-restart untuk memuat kode F1; dokumentasi disinkronkan; test script F2 (AI-agent) & test plan F1 (human) disiapkan |
