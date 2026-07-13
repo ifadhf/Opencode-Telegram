@@ -14,6 +14,20 @@ export interface ChatState {
   mode?: string
 }
 
+export interface TopicBinding {
+  sessionId: string
+  cwd: string
+  model?: SelectedModel
+  mode?: string
+}
+
+const TopicBindingSchema = z.object({
+  sessionId: z.string(),
+  cwd: z.string(),
+  model: z.object({ providerId: z.string(), modelId: z.string() }).optional(),
+  mode: z.string().optional(),
+})
+
 const SavedStateSchema = z.object({
   sessions: z.array(z.tuple([z.number(), z.string()])),
   models: z.array(z.tuple([z.number(), z.object({ providerId: z.string(), modelId: z.string() })])),
@@ -33,6 +47,7 @@ const SavedStateSchema = z.object({
     chatId: z.number(),
     text: z.string(),
   })).optional(),
+  topicBindings: z.record(z.string(), TopicBindingSchema).optional(),
 }).strip()
 
 export interface CostEntry {
@@ -59,6 +74,8 @@ export class StateManager {
     costTracking: Map<string, CostEntry>
     promptCounters: Map<number, number>
     queuedMessages: QueuedMessage[]
+    topicBindings: Map<string, TopicBinding>
+    sessionToTopic: Map<string, { chatId: number; threadId: number }>
   }
   private stateFile: string
   private saveQueue: Promise<void> = Promise.resolve()
@@ -72,6 +89,8 @@ export class StateManager {
       costTracking: new Map(),
       promptCounters: new Map(),
       queuedMessages: [],
+      topicBindings: new Map(),
+      sessionToTopic: new Map(),
     }
   }
 
@@ -79,6 +98,17 @@ export class StateManager {
     try {
       const data = await readFile(this.stateFile, 'utf-8')
       const parsed = SavedStateSchema.parse(JSON.parse(data))
+      const topicBindings = new Map<string, TopicBinding>(
+        Object.entries(parsed.topicBindings || {})
+      )
+      const sessionToTopic = new Map<string, { chatId: number; threadId: number }>()
+      for (const [key, binding] of topicBindings) {
+        const [chatIdStr, threadIdStr] = key.split(':')
+        sessionToTopic.set(binding.sessionId, {
+          chatId: parseInt(chatIdStr, 10),
+          threadId: parseInt(threadIdStr, 10),
+        })
+      }
       this.state = {
         sessions: new Map(parsed.sessions || []),
         models: new Map(parsed.models || []),
@@ -93,6 +123,8 @@ export class StateManager {
             .filter(([k]) => !isNaN(k))
         ),
         queuedMessages: parsed.queuedMessages || [],
+        topicBindings,
+        sessionToTopic,
       }
       getLogger().info('State loaded', {
         sessions: this.state.sessions.size,
@@ -124,8 +156,9 @@ export class StateManager {
           costTracking: Object.fromEntries(this.state.costTracking),
           promptCounters: Object.fromEntries(this.state.promptCounters),
           queuedMessages: this.state.queuedMessages,
+          topicBindings: Object.fromEntries(this.state.topicBindings),
         }
-        const tmpFile = this.stateFile + '.tmp'
+        const tmpFile = this.stateFile + '.' + Date.now() + '.' + Math.random().toString(36).slice(2, 8) + '.tmp'
         await writeFile(tmpFile, JSON.stringify(data, null, 2))
         await rename(tmpFile, this.stateFile)
       } catch (error) {
@@ -270,5 +303,51 @@ export class StateManager {
       this.state.queuedMessages = []
     }
     this.save()
+  }
+
+  // Topic-aware session management (F2: forum topics / multi-sesi)
+  private topicKey(chatId: number, threadId: number): string {
+    return `${chatId}:${threadId}`
+  }
+
+  setTopicSession(chatId: number, threadId: number, binding: TopicBinding): void {
+    const key = this.topicKey(chatId, threadId)
+    this.state.topicBindings.set(key, binding)
+    this.state.sessionToTopic.set(binding.sessionId, { chatId, threadId })
+    this.save()
+  }
+
+  getTopicSession(chatId: number, threadId: number): TopicBinding | undefined {
+    return this.state.topicBindings.get(this.topicKey(chatId, threadId))
+  }
+
+  getTopicBySession(sessionId: string): { chatId: number; threadId: number } | undefined {
+    return this.state.sessionToTopic.get(sessionId)
+  }
+
+  getAllTopics(chatId: number): Array<{ threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> {
+    const prefix = `${chatId}:`
+    const results: Array<{ threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> = []
+    for (const [key, binding] of this.state.topicBindings) {
+      if (key.startsWith(prefix)) {
+        const threadId = parseInt(key.slice(prefix.length), 10)
+        results.push({ threadId, ...binding })
+      }
+    }
+    return results
+  }
+
+  clearTopicSession(chatId: number, threadId: number): void {
+    const key = this.topicKey(chatId, threadId)
+    const binding = this.state.topicBindings.get(key)
+    if (binding) {
+      this.state.sessionToTopic.delete(binding.sessionId)
+    }
+    this.state.topicBindings.delete(key)
+    this.save()
+  }
+
+  flushSave(): Promise<void> {
+    return this.saveQueue
   }
 }
