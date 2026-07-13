@@ -118,3 +118,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-13 | Fase 1 selesai: tool summaries, SHOW_THINKING/SHOW_TOOL_CALLS/SHOW_TOKENS flags, completion debounce 5dtk, HTML-aware splitting (`b66c3f1`) |
 | 2026-07-14 | Service `opencode-tele.service` di-restart untuk memuat kode F1; dokumentasi disinkronkan; test script F2 (AI-agent) & test plan F1 (human) disiapkan |
 | 2026-07-14 | 5 bug fatal diperbaiki (`443d5f6`: abort/switch-sesi/debounce/setMyCommands) + command menu; **F1 human test 9/9 PASS** — Fase 1 tervalidasi end-to-end |
+| 2026-07-14 | Dokumentasi dikoreksi: test plan f1→f0/f2→f1, status F2 di `docs/` dikembalikan ke "belum mulai" |
