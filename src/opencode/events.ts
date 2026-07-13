@@ -9,8 +9,8 @@ import { getLogger } from '../utils/logger.js'
 interface BusySessionInfo {
   chatId: number
   sessionId: string
-  lastMessageCount: number
-  lastProcessedMessageId?: string
+  anchorMessageId?: string
+  processedPartIds: Set<string>
   processedStepFinishIds: Set<string>
   startedAt: number
   lastActivityAt: number
@@ -70,12 +70,15 @@ export class EventProcessor {
 
           if (isBusy && !this.busySessions.has(sessionId)) {
             try {
-              const messages = await this.client.getMessages(sessionId, 5)
+              const messages = await this.client.getMessages(sessionId, 50)
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
+              // Anchor at the just-sent user prompt: only messages after it are "new"
+              const lastUser = [...messages].reverse().find(m => m.role === 'user')
               this.busySessions.set(sessionId, {
                 chatId,
                 sessionId,
-                lastMessageCount: messages.length,
+                anchorMessageId: lastUser?.id,
+                processedPartIds: new Set(),
                 processedStepFinishIds: new Set(),
                 startedAt: Date.now(),
                 lastActivityAt: Date.now(),
@@ -100,24 +103,24 @@ export class EventProcessor {
         const sessionsToProcess = [...this.busySessions.entries()]
         for (const [sessionId, busyInfo] of sessionsToProcess) {
           try {
-            const messages = await this.client.getMessages(sessionId, 5)
+            const messages = await this.client.getMessages(sessionId, 50)
 
             busyInfo.lastActivityAt = Date.now()
 
-            const latestAssistant = messages
-              .filter(m => m.role === 'assistant')
-              .pop()
+            // Only messages after the anchor (the prompt we just sent) are new
+            const newMessages = this.messagesAfterAnchor(messages, busyInfo.anchorMessageId)
 
-            if (latestAssistant && latestAssistant.time?.completed) {
+            // Relay newly finished parts before checking completion
+            await this.processNewMessages(busyInfo.chatId, sessionId, newMessages, busyInfo)
+
+            const last = messages[messages.length - 1]
+            const lastIsNew = last && newMessages.some(m => m.id === last.id)
+
+            if (lastIsNew && last.role === 'assistant' && (last.time?.completed || (last as any).finish)) {
               log.info('Detected session completion via polling', { sessionId, chatId: busyInfo.chatId })
               this.busySessions.delete(sessionId)
               await this.processSessionIdle(sessionId, busyInfo.chatId)
             } else {
-              if (messages.length !== busyInfo.lastMessageCount) {
-                busyInfo.lastMessageCount = messages.length
-                await this.processNewMessages(busyInfo.chatId, sessionId, messages, busyInfo)
-              }
-
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
                 await this.pollTodos(busyInfo)
               }
@@ -350,9 +353,9 @@ export class EventProcessor {
   private async processNewMessages(chatId: number, sessionId: string, messages: any[], busyInfo: BusySessionInfo): Promise<void> {
     for (const msg of messages) {
       if (msg.role !== 'assistant' || !msg.parts) continue
-      if (busyInfo.lastProcessedMessageId && msg.id === busyInfo.lastProcessedMessageId) continue
 
       for (const part of msg.parts) {
+        const partKey = part.id || `${msg.id}:${part.type}`
         if (part.type === 'step-start') {
           const stepTitle = (part as any).title || (part as any).label || ''
           if (stepTitle && stepTitle !== busyInfo.currentStepTitle) {
@@ -366,7 +369,8 @@ export class EventProcessor {
           }
         }
 
-        if (part.type === 'reasoning' && part.time?.end && part.text?.trim()) {
+        if (part.type === 'reasoning' && part.time?.end && part.text?.trim() && !busyInfo.processedPartIds.has(partKey)) {
+          busyInfo.processedPartIds.add(partKey)
           const thinking = part.text.trim()
           const maxLen = 2000
           const displayText = thinking.length > maxLen ? thinking.substring(0, maxLen) + '...' : thinking
@@ -377,7 +381,8 @@ export class EventProcessor {
           )
         }
 
-        if (part.type === 'text' && part.time?.end && part.text?.trim()) {
+        if (part.type === 'text' && part.time?.end && part.text?.trim() && !busyInfo.processedPartIds.has(partKey)) {
+          busyInfo.processedPartIds.add(partKey)
           if (part.ignored || part.synthetic) continue
           const text = stripAnsi(part.text.trim())
           if (text) {
@@ -437,9 +442,13 @@ export class EventProcessor {
           }
         }
       }
-
-      busyInfo.lastProcessedMessageId = msg.id
     }
+  }
+
+  private messagesAfterAnchor(messages: any[], anchorId?: string): any[] {
+    if (!anchorId) return messages
+    const idx = messages.findIndex(m => m.id === anchorId)
+    return idx >= 0 ? messages.slice(idx + 1) : messages
   }
 
   private async sendWithRateLimit(chatId: number, text: string, options?: any): Promise<void> {

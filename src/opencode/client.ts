@@ -237,7 +237,10 @@ export class OpenCodeClient {
 
   async getMessages(sessionId: string, limit?: number): Promise<MessageInfo[]> {
     const params = limit ? `?limit=${limit}` : ''
-    return this.request<MessageInfo[]>(`/session/${encodeURIComponent(sessionId)}/message${params}`)
+    const raw = await this.request<any>(`/session/${encodeURIComponent(sessionId)}/message${params}`)
+    if (!Array.isArray(raw)) return []
+    // OpenCode v1.x returns [{info, parts}] envelopes; older builds returned flat messages
+    return raw.map((m: any) => (m && m.info ? { ...m.info, parts: m.parts ?? [] } : m)) as MessageInfo[]
   }
 
   async listProviders(): Promise<Provider[]> {
