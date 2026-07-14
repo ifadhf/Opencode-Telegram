@@ -301,6 +301,27 @@ export function registerCommands(
         const summary = (session as any).summary
         message += `Changes: +${summary.additions || 0} -${summary.deletions || 0} (${summary.files || 0} files)\n`
       }
+
+      if ((session as any).permission && (session as any).permission.length > 0) {
+        const perms = (session as any).permission as Array<{ permission: string; pattern: string; action: string }>
+        const overrides = perms.filter(p => p.action === 'deny')
+        if (overrides.length > 0) {
+          message += `*Permission overrides:*\n`
+          for (const p of overrides) {
+            message += `  \`${escapeMarkdown(p.permission)}\` → ${p.action} (${escapeMarkdown(p.pattern)})\n`
+          }
+        }
+      }
+
+      const tCreated = (session as any).time?.created
+      const tUpdated = (session as any).time?.updated
+      if (tCreated) {
+        message += `Created: ${new Date(tCreated).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n`
+      }
+      if (tUpdated) {
+        message += `Updated: ${new Date(tUpdated).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n`
+      }
+
       message += '\n'
     } catch {
       message += `*Session:* \`${escapeMarkdown(sessionId)}\` (not found)\n\n`

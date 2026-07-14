@@ -552,6 +552,8 @@ export class EventProcessor {
             busyInfo.processingTools.delete(partKey)
             if (!runningEntry) continue
 
+            if (!SHOW_TOOL_CALLS) continue
+
             const summary = this.buildToolSummary(toolName, part, runningEntry.title)
             if (summary) {
               await this.sendWithRateLimit(chatId, busyInfo.threadId, summary, { parse_mode: 'Markdown' })
