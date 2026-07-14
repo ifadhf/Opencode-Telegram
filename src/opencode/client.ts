@@ -1,6 +1,6 @@
 import * as http from 'http'
 import * as https from 'https'
-import { SessionInfo, MessageInfo, PermissionRequest, PermissionReply, QuestionRequest } from '../types/index.js'
+import { SessionInfo, MessageInfo, PermissionRequest, PermissionReply, QuestionRequest, FilePartInput } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
 export interface Model {
@@ -218,10 +218,13 @@ export class OpenCodeClient {
     providerId?: string
     modelId?: string
     agent?: string
+    files?: FilePartInput[]
   }): Promise<void> {
-    const body: any = {
-      parts: [{ type: 'text', text: content }],
-    }
+    const parts: any[] = []
+    if (content && content.trim()) parts.push({ type: 'text', text: content })
+    if (options?.files?.length) parts.push(...options.files)
+    if (parts.length === 0) parts.push({ type: 'text', text: content })
+    const body: any = { parts }
     if (options?.providerId && options?.modelId) {
       body.providerID = options.providerId
       body.modelID = options.modelId

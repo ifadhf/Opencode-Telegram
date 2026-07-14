@@ -137,6 +137,14 @@ export interface PtyUpdatedEvent extends Event {
   }
 }
 
+// OpenCode prompt file/image part (image bytes embedded as a data: URI in url).
+export interface FilePartInput {
+  type: 'file'
+  mime: string
+  url: string
+  filename?: string
+}
+
 export interface QuestionOption {
   label: string
   description?: string

@@ -8,6 +8,7 @@ import { getLogger } from '../utils/logger.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './history.js'
 import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
 import { answerForIndex } from '../opencode/questionFormat.js'
+import { pickLargestPhoto, buildImagePart } from './photo.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -129,6 +130,72 @@ export function registerHandlers(
           next.reject(error as Error)
         }
       }
+    }
+  })
+
+  // Handle photo messages (image → prompt to the agent)
+  bot.on('message:photo', async (ctx) => {
+    const userId = ctx.from?.id.toString()
+    if (userId !== process.env.AUTHORIZED_USER_ID) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    const threadId = getThreadId(ctx)
+    const { sessionId } = resolveSession(ctx, stateManager)
+    if (!sessionId) {
+      if (threadId > 0) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      } else {
+        await ctx.reply('No session selected. Use /session to create or select one.')
+      }
+      return
+    }
+
+    // Images can't be queued (the queue only holds text) — ask to resend later.
+    if (messageQueue.isBusy(ctx.chat.id, threadId)) {
+      await ctx.reply("⏳ Agent is busy — please resend the photo once it's done (images can't be queued).")
+      return
+    }
+
+    const replyOpts: any = {}
+    if (threadId > 0) replyOpts.message_thread_id = threadId
+
+    try {
+      const largest = pickLargestPhoto(ctx.message.photo)
+      if (!largest) {
+        await ctx.reply('❌ Could not read the photo.')
+        return
+      }
+      const file = await ctx.api.getFile(largest.file_id)
+      const token = process.env.TELEGRAM_BOT_TOKEN
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`
+      const resp = await fetch(url)
+      const buffer = Buffer.from(await resp.arrayBuffer())
+      const mime = file.file_path?.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+      const part = buildImagePart(mime, buffer.toString('base64'), file.file_path?.split('/').pop() || 'photo.jpg')
+
+      const caption = ctx.message.caption || ''
+      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+      const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
+      const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
+
+      stateManager.incrementPromptCount(ctx.chat.id)
+      messageQueue.setBusy(ctx.chat.id, threadId)
+      const workingMsg = await ctx.reply('📷 Image sent — OpenCode is working...', replyOpts)
+      eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
+
+      await client.sendAsyncMessage(sessionId, caption, {
+        providerId: selectedModel?.providerId,
+        modelId: selectedModel?.modelId,
+        agent: selectedMode,
+        files: [part],
+      })
+      log.info('Sent image to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
+    } catch (error) {
+      log.error('Failed to send image', { error: (error as Error).message })
+      messageQueue.setIdle(ctx.chat.id, threadId)
+      await ctx.reply(`❌ Failed to send image: ${(error as Error).message}`)
     }
   })
 
