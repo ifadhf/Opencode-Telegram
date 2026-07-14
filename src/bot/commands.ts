@@ -1227,12 +1227,13 @@ export function registerCommands(
       return
     }
 
-    const page = Math.max(1, parseInt((ctx.match as string || '').trim(), 10) || 1)
+    const args = (ctx.match as string || '').trim()
 
     try {
       const messages = await client.getMessages(sessionId, 50)
-      const reversed = [...messages].reverse()
-      const paginated = paginateMessages(reversed, page, HISTORY_PAGE_SIZE)
+      const lastPage = Math.ceil(messages.length / HISTORY_PAGE_SIZE) || 1
+      const page = Math.max(1, parseInt(args, 10) || lastPage)
+      const paginated = paginateMessages(messages, page, HISTORY_PAGE_SIZE)
       const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
       const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
 

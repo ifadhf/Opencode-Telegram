@@ -44,19 +44,32 @@ function formatTimestamp(created: number): string {
 
 function getTextFromParts(parts?: MessagePart[]): string {
   if (!parts || parts.length === 0) return '<i>(no content)</i>'
-  const texts = parts
-    .filter((p) => p.type === 'text' || p.type === 'reasoning')
-    .map((p) => p.text || '')
-    .filter(Boolean)
-  if (texts.length === 0) {
-    const types = parts.map((p) => p.type).join(', ')
-    return `<i>(${escapeHtml(types)})</i>`
+  const visible = parts.filter((p: any) => p.type === 'text' && !p.ignored && !p.synthetic)
+  const texts = visible.map((p: any) => p.text || '').filter(Boolean)
+  if (texts.length > 0) {
+    let result = texts.join('\n')
+    if (result.length > 500) {
+      result = result.slice(0, 497) + '...'
+    }
+    return escapeHtml(result)
   }
-  let result = texts.join('\n')
-  if (result.length > 500) {
-    result = result.slice(0, 497) + '...'
+  return ''
+}
+
+function getToolCount(parts?: MessagePart[]): number {
+  if (!parts) return 0
+  return parts.filter((p: any) => p.type === 'tool').length
+}
+
+function formatCost(m: MessageInfo): string {
+  const parts: string[] = []
+  if (m.tokens) {
+    parts.push(`${m.tokens.input}→${m.tokens.output} tok`)
   }
-  return escapeHtml(result)
+  if (m.cost && m.cost > 0) {
+    parts.push(`$${typeof m.cost === 'number' ? m.cost.toFixed(6) : m.cost}`)
+  }
+  return parts.length > 0 ? ` <i>(${escapeHtml(parts.join(' • '))})</i>` : ''
 }
 
 export function formatHistoryPage(
@@ -76,7 +89,23 @@ export function formatHistoryPage(
     const role = formatRole(m.role)
     const time = formatTimestamp(m.time.created)
     const content = getTextFromParts(m.parts)
-    text += `<b>${escapeHtml(role)}</b> <i>${escapeHtml(time)}</i>\n${content}\n`
+    const cost = formatCost(m)
+
+    text += `<b>${escapeHtml(role)}</b> <i>${escapeHtml(time)}</i>${cost}\n`
+
+    if (m.role === 'assistant') {
+      const toolCount = getToolCount(m.parts)
+      if (toolCount > 0) {
+        text += `<i>→ ${toolCount} tool call${toolCount !== 1 ? 's' : ''}</i>\n`
+      }
+    }
+
+    if (content) {
+      text += content + '\n'
+    } else if (m.role === 'user') {
+      text += '<i>(no text)</i>\n'
+    }
+
     if (i < messages.length - 1) {
       text += '\n'
     }
@@ -93,13 +122,13 @@ export function buildHistoryKeyboard(
   const row: Array<{ text: string; callback_data: string }> = []
 
   if (page > 1) {
-    row.push({ text: '◀ Newer', callback_data: `history_page:${page - 1}:${sessionId}` })
+    row.push({ text: '◀ Older', callback_data: `history_page:${page - 1}:${sessionId}` })
   }
 
   row.push({ text: `${page}/${totalPages}`, callback_data: `history_nop` })
 
   if (page < totalPages) {
-    row.push({ text: 'Older ▶', callback_data: `history_page:${page + 1}:${sessionId}` })
+    row.push({ text: 'Newer ▶', callback_data: `history_page:${page + 1}:${sessionId}` })
   }
 
   return { inline_keyboard: [row] }
