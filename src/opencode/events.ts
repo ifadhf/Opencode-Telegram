@@ -1,9 +1,14 @@
-import { Bot } from 'grammy'
+import { Bot, InputFile } from 'grammy'
 import { OpenCodeClient } from './client.js'
 import { StateManager } from '../state/manager.js'
 import { PermissionHandler } from './permission.js'
 import { MessageQueue } from '../bot/queue.js'
 import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
+import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
+import { renderQuestion } from './questionFormat.js'
+import { toTelegramMarkdown } from '../utils/markdown.js'
+import { imageFromPart, OutgoingImage } from '../bot/photo.js'
+import { QuestionRequest } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
 interface BusySessionInfo {
@@ -37,15 +42,15 @@ const COMPLETION_DEBOUNCE_MS = 5000
 
 export class EventProcessor {
   private running = false
-  private workingSessions = new Map<string, { chatId: number; threadId: number; messageId: number; statusMessageId?: number }>()
+  private workingSessions = new Map<string, { chatId: number; threadId: number; messageId: number }>()
   private consecutiveErrors = 0
   private maxConsecutiveErrors = 10
   private busySessions = new Map<string, BusySessionInfo>()
+  private sentQuestions = new Set<string>()
   private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number; threadId: number }>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
-  private readonly WORKING_STATUS_INTERVAL_MS = 15000
 
   constructor(
     private client: OpenCodeClient,
@@ -63,11 +68,11 @@ export class EventProcessor {
     log.info('Event processor started (Polling mode)')
 
     let todoPollCounter = 0
-    let statusPollCounter = 0
 
     while (this.running) {
       try {
         await this.permissionHandler.checkPendingPermissions().catch(() => {})
+        await this.checkPendingQuestions().catch(() => {})
 
         // Discover busy sessions via topic bindings
         const topicBindings = this.stateManager.getAllTopicBindings()
@@ -145,7 +150,6 @@ export class EventProcessor {
         }
 
         todoPollCounter++
-        statusPollCounter++
 
         const sessionsToProcess = [...this.busySessions.entries()]
         for (const [sessionId, busyInfo] of sessionsToProcess) {
@@ -176,12 +180,14 @@ export class EventProcessor {
                 this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId, threadId: busyInfo.threadId })
               }
             } else {
+              // Still working: keep the Telegram "typing…" indicator alive
+              // (it auto-expires after ~5s; we poll every 3s) and refresh the
+              // single status bubble in place from the messages we just fetched.
+              await this.sendTyping(busyInfo.chatId, busyInfo.threadId)
+              await this.updateWorkingStatus(busyInfo, messages)
+
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
                 await this.pollTodos(busyInfo)
-              }
-
-              if (statusPollCounter >= Math.floor(this.WORKING_STATUS_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
-                await this.pollWorkingStatus(busyInfo)
               }
             }
           } catch (error) {
@@ -209,9 +215,6 @@ export class EventProcessor {
 
         if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
           todoPollCounter = 0
-        }
-        if (statusPollCounter >= Math.floor(this.WORKING_STATUS_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
-          statusPollCounter = 0
         }
 
         for (const [sessionId, busyInfo] of [...this.busySessions.entries()]) {
@@ -286,9 +289,10 @@ export class EventProcessor {
     }
   }
 
-  private async pollWorkingStatus(busyInfo: BusySessionInfo): Promise<void> {
+  // Refresh the single "working" status bubble in place from messages already
+  // fetched this poll (no extra API call). Deduped so we skip no-op edits.
+  private async updateWorkingStatus(busyInfo: BusySessionInfo, messages: any[]): Promise<void> {
     try {
-      const messages = await this.client.getMessages(busyInfo.sessionId, 3)
       const latest = messages[messages.length - 1]
       if (!latest || latest.role !== 'assistant' || !latest.parts) return
 
@@ -307,16 +311,18 @@ export class EventProcessor {
         }
       }
 
-      const statusText = this.buildWorkingStatus(currentStep, activeTools)
+      const statusText = buildWorkingStatus(currentStep, activeTools)
       if (statusText && statusText !== busyInfo.lastWorkingStatus) {
         busyInfo.lastWorkingStatus = statusText
         busyInfo.currentStepTitle = currentStep
 
+        // Edit the "⏳ …working" bubble itself in place (working.messageId),
+        // which processSessionIdle later flips to "✅ Task completed!".
         const working = this.workingSessions.get(busyInfo.sessionId)
-        if (working?.statusMessageId) {
+        if (working) {
           await this.bot.api.editMessageText(
             working.chatId,
-            working.statusMessageId,
+            working.messageId,
             statusText,
             { parse_mode: 'Markdown' }
           ).catch(() => {})
@@ -327,26 +333,31 @@ export class EventProcessor {
     }
   }
 
-  private buildWorkingStatus(step: string, tools: Array<{ tool: string; title: string }>): string {
-    const parts: string[] = []
-
-    if (step) {
-      parts.push(`🚀 *Step:* ${escapeMarkdown(step)}`)
+  private async sendTyping(chatId: number, threadId: number): Promise<void> {
+    try {
+      await this.bot.api.sendChatAction(
+        chatId,
+        'typing',
+        threadId > 0 ? { message_thread_id: threadId } : {}
+      )
+    } catch {
+      // Best-effort; the typing indicator is cosmetic
     }
+  }
 
-    for (const t of tools.slice(0, 3)) {
-      const icon = this.getToolIcon(t.tool)
-      const name = this.formatToolName(t.tool)
-      if (t.title) {
-        parts.push(`${icon} *${name}:* ${escapeMarkdown(t.title.substring(0, 80))}`)
-      } else {
-        parts.push(`${icon} *${name}*`)
-      }
+  // Send an image the agent produced (data:/http/path) back to the chat.
+  private async sendImage(chatId: number, threadId: number, img: OutgoingImage): Promise<void> {
+    try {
+      const opts: any = {}
+      if (threadId > 0) opts.message_thread_id = threadId
+      let photo: string | InputFile
+      if (img.source === 'url') photo = img.url!
+      else if (img.source === 'buffer') photo = new InputFile(img.buffer!, img.filename)
+      else photo = new InputFile(img.path!)
+      await this.bot.api.sendPhoto(chatId, photo, opts)
+    } catch (error) {
+      getLogger().warn('Failed to send agent image', { error: (error as Error).message })
     }
-
-    if (parts.length === 0) return ''
-
-    return `🔧 *Working...*\n\n${parts.join('\n')}`
   }
 
   private async sendTodoUpdate(chatId: number, threadId: number, todos: TodoItem[]): Promise<void> {
@@ -387,9 +398,6 @@ export class EventProcessor {
         working.messageId,
         statusText
       ).catch(() => {})
-      if (working.statusMessageId) {
-        await this.bot.api.deleteMessage(working.chatId, working.statusMessageId).catch(() => {})
-      }
       this.workingSessions.delete(sessionId)
     }
 
@@ -488,8 +496,8 @@ export class EventProcessor {
           await this.sendWithRateLimit(
             chatId,
             busyInfo.threadId,
-            `🤔 *Thinking:*\n${escapeMarkdown(displayText)}`,
-            { parse_mode: 'Markdown' }
+            `🤔 *Thinking:*\n${toTelegramMarkdown(displayText)}`,
+            { parse_mode: 'MarkdownV2' }
           )
         }
 
@@ -498,16 +506,25 @@ export class EventProcessor {
           if (!part.text?.trim() || part.ignored || part.synthetic) continue
           const text = stripAnsi(part.text.trim())
           if (text) {
-            const chunks = splitMessage(`📝 *Response:*\n${escapeMarkdown(text)}`)
+            // Render the agent's Markdown as real MarkdownV2, then chunk (splitMessage
+            // is code-block aware, so fences survive the split).
+            const body = toTelegramMarkdown(text)
+            const chunks = splitMessage(`📝 *Response:*\n${body}`)
             for (const chunk of chunks) {
-              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'Markdown' })
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'MarkdownV2' })
             }
           }
         }
 
+        if (part.type === 'file' && !busyInfo.processedPartIds.has(partKey)) {
+          busyInfo.processedPartIds.add(partKey)
+          const img = imageFromPart(part)
+          if (img) await this.sendImage(chatId, busyInfo.threadId, img)
+        }
+
         if (part.type === 'tool') {
           const toolName = part.tool || 'unknown'
-          const icon = this.getToolIcon(toolName)
+          const icon = getToolIcon(toolName)
           const title = stripAnsi(part.state?.title || '')
           const status = part.state?.status
 
@@ -525,7 +542,7 @@ export class EventProcessor {
               await this.sendWithRateLimit(
                 chatId,
                 busyInfo.threadId,
-                `⏳ ${icon} *${this.formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
+                `⏳ ${icon} *${formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
                 { parse_mode: 'Markdown' }
               )
             }
@@ -584,8 +601,8 @@ export class EventProcessor {
   }
 
   private buildToolSummary(tool: string, part: any, runningTitle: string): string | null {
-    const icon = this.getToolIcon(tool)
-    const name = this.formatToolName(tool)
+    const icon = getToolIcon(tool)
+    const name = formatToolName(tool)
     const status = part.state?.status
     const stateData = part.state || {}
     const output = stripAnsi(stateData.output || '')
@@ -674,6 +691,21 @@ export class EventProcessor {
         } catch {
           // Give up on this message
         }
+        return
+      }
+      if (options?.parse_mode && error.description?.includes("can't parse entities")) {
+        // Formatting was rejected — resend as plain text (with Markdown escapes
+        // stripped) so the content is never lost to a parse error.
+        getLogger().warn('Markdown parse failed, resending as plain text', { error: error.description })
+        try {
+          const sendOpts = { ...options }
+          delete sendOpts.parse_mode
+          if (threadId > 0) sendOpts.message_thread_id = threadId
+          const plain = text.replace(/\\([_*[\]()~`>#+\-=|{}.!])/g, '$1')
+          await this.bot.api.sendMessage(chatId, plain, sendOpts)
+        } catch {
+          // Give up on this message
+        }
       }
     }
   }
@@ -714,11 +746,7 @@ export class EventProcessor {
   }
 
   private resolveSessionChat(sessionId: string): { chatId: number; threadId: number } | undefined {
-    const topic = this.stateManager.getTopicBySession(sessionId)
-    if (topic) return topic
-    const chatId = this.stateManager.getChatIdForSession(sessionId)
-    if (chatId !== undefined) return { chatId, threadId: 0 }
-    return undefined
+    return this.stateManager.resolveChat(sessionId)
   }
 
   private async handleSessionError(event: any): Promise<void> {
@@ -798,44 +826,41 @@ export class EventProcessor {
     )
   }
 
-  private async handleQuestionAsked(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
+  // Poll GET /question for pending interactive questions and surface each new
+  // one as tappable buttons. OpenCode has no push on the polling path, so we
+  // mirror checkPendingPermissions. sentQuestions dedupes across polls; ids no
+  // longer pending are pruned so a genuine re-ask surfaces again.
+  private async checkPendingQuestions(): Promise<void> {
+    try {
+      const pending = await this.client.listQuestions()
+      const activeIds = new Set(pending.map(q => q.id))
+      for (const id of [...this.sentQuestions]) {
+        if (!activeIds.has(id)) this.sentQuestions.delete(id)
+      }
+      for (const req of pending) {
+        if (this.sentQuestions.has(req.id)) continue
+        this.sentQuestions.add(req.id)
+        await this.sendQuestionPrompt(req)
+      }
+    } catch {
+      // Non-fatal: endpoint unavailable / older server — skip this poll.
+    }
+  }
+
+  private async sendQuestionPrompt(req: QuestionRequest): Promise<void> {
+    const target = this.resolveSessionChat(req.sessionID)
     if (!target) return
 
     const log = getLogger()
-    log.info('Question asked', { questionId: event.id, sessionID: event.sessionID })
+    log.info('Question asked', { questionId: req.id, sessionID: req.sessionID })
 
-    const questionText = event.question || 'OpenCode has a question'
-    const options: string[] = event.options || []
-    const header = event.header || 'Question'
+    const { text, inlineKeyboard } = renderQuestion(req)
+    const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
+    if (target.threadId > 0) opts.message_thread_id = target.threadId
 
-    let message = `❓ *${escapeMarkdown(header)}*\n\n${escapeMarkdown(questionText)}`
-
-    if (options.length > 0) {
-      const inlineKeyboard = options.map((opt, idx) => [{
-        text: opt,
-        callback_data: `q:${event.id}:${idx}`,
-      }])
-
-      inlineKeyboard.push([{
-        text: '❌ Dismiss',
-        callback_data: `q:reject:${event.id}`,
-      }])
-
-      const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
-      if (target.threadId > 0) opts.message_thread_id = target.threadId
-
-      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
-        log.error('Failed to send question', { error: (error as Error).message })
-      })
-    } else {
-      message += '\n\n_Reply to this message with your answer._'
-      const opts: any = { parse_mode: 'Markdown' }
-      if (target.threadId > 0) opts.message_thread_id = target.threadId
-      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
-        log.error('Failed to send question', { error: (error as Error).message })
-      })
-    }
+    await this.bot.api.sendMessage(target.chatId, text, opts).catch(error => {
+      log.error('Failed to send question', { error: (error as Error).message })
+    })
   }
 
   private async handleTodoUpdated(event: any): Promise<void> {
@@ -867,19 +892,4 @@ export class EventProcessor {
     }
   }
 
-  private getToolIcon(tool: string): string {
-    const icons: Record<string, string> = {
-      bash: '🖥️', edit: '✏️', write: '📝', read: '📖',
-      grep: '🔍', glob: '🔍', todowrite: '📋', websearch: '🌐',
-    }
-    return icons[tool] || '🔧'
-  }
-
-  private formatToolName(tool: string): string {
-    const toolNames: Record<string, string> = {
-      bash: 'Bash', edit: 'Edit', write: 'Write', read: 'Read',
-      grep: 'Grep', glob: 'Glob', todowrite: 'Todo', websearch: 'Search',
-    }
-    return toolNames[tool] || tool.charAt(0).toUpperCase() + tool.slice(1)
-  }
 }

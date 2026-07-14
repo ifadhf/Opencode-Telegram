@@ -4,6 +4,7 @@ import { parseArgs } from 'util'
 import { resolve } from 'path'
 import { TelegramBot } from './bot/index.js'
 import { OpenCodeServer } from './opencode/server.js'
+import { HealthMonitor } from './opencode/health.js'
 import { loadConfig, validateConfig, hasCredentials, saveProjectConfig, removeProjectConfig, projectConfigExists } from './utils/config.js'
 import { initLogger, getLogger } from './utils/logger.js'
 
@@ -173,12 +174,14 @@ async function main() {
   logger.info('Project directory', { directory: projectDir })
 
   let openCodeServer: OpenCodeServer | null = null
+  let healthMonitor: HealthMonitor | null = null
+  let enableTunnel = false
 
   // Start OpenCode server if requested
   if (startServer) {
     console.log('⏳ Starting OpenCode server...')
     const serverPort = parseInt(values.port || '4097', 10)
-    const enableTunnel = !!values.tunnel
+    enableTunnel = !!values.tunnel
     
     if (enableTunnel) {
       console.log('⚠️  Cloudflare tunnel enabled - server will be publicly accessible')
@@ -205,6 +208,30 @@ async function main() {
   console.log(`📡 Connecting to OpenCode at ${botConfig.openCodeUrl}`)
   const bot = new TelegramBot(botConfig)
 
+  if (startServer && openCodeServer) {
+    const healthUrl = `http://127.0.0.1:${openCodeServer.getPort()}/session`
+    healthMonitor = new HealthMonitor({
+      healthUrl,
+      onUnhealthy: (reason, attempt) => {
+        logger.error(`Server unhealthy: ${reason}`, { attempt })
+      },
+      onRecovered: () => {
+        logger.info('Server recovered after restart')
+      },
+      onRestartFailed: (reason) => {
+        logger.error(`Restart failed: ${reason}`)
+      },
+      onRestart: async () => {
+        if (openCodeServer) {
+          logger.info('Restarting OpenCode server...')
+          await openCodeServer.stop()
+          await openCodeServer.start(enableTunnel)
+          logger.info('OpenCode server restarted')
+        }
+      },
+    })
+  }
+
   // Handle graceful shutdown
   let shuttingDown = false
   const shutdown = async () => {
@@ -213,6 +240,10 @@ async function main() {
     logger.info('Shutting down...')
 
     console.log('\n🔴 Stopping services...')
+
+    if (healthMonitor) {
+      healthMonitor.stop()
+    }
 
     // Stop OpenCode server first
     if (openCodeServer) {
@@ -232,6 +263,9 @@ async function main() {
   process.on('SIGTERM', shutdown)
 
   try {
+    if (healthMonitor) {
+      healthMonitor.start()
+    }
     await bot.start()
   } catch (error) {
     logger.error('Failed to start bot', { error: (error as Error).message })

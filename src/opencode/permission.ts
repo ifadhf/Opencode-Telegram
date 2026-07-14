@@ -16,17 +16,20 @@ export class PermissionHandler {
 
   async handlePermissionRequest(permission: PermissionRequest): Promise<void> {
     const log = getLogger()
-    const chatId = this.stateManager.getChatIdForSession(permission.sessionID)
+    // Resolve topic-bound sessions too — forum-topic sessions are invisible to the
+    // legacy chatId→session map, which previously dropped their approval prompts.
+    const target = this.stateManager.resolveChat(permission.sessionID)
 
-    if (!chatId) {
+    if (!target) {
       // Silent: This session belongs to another client (CLI or another bot)
       return
     }
 
+    const { chatId, threadId } = target
     const message = formatPermissionRequest(permission)
 
     try {
-      const msg = await this.bot.api.sendMessage(chatId, message, {
+      const sendOpts: any = {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -39,10 +42,13 @@ export class PermissionHandler {
             ],
           ],
         },
-      })
+      }
+      if (threadId > 0) sendOpts.message_thread_id = threadId
+
+      const msg = await this.bot.api.sendMessage(chatId, message, sendOpts)
 
       this.pendingRequests.set(permission.id, { chatId, messageId: msg.message_id })
-      log.info('Permission request sent', { requestId: permission.id, chatId })
+      log.info('Permission request sent', { requestId: permission.id, chatId, threadId })
     } catch (error) {
       log.error('Failed to send permission request', { error: (error as Error).message })
     }

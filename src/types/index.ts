@@ -137,15 +137,38 @@ export interface PtyUpdatedEvent extends Event {
   }
 }
 
+// OpenCode prompt file/image part (image bytes embedded as a data: URI in url).
+export interface FilePartInput {
+  type: 'file'
+  mime: string
+  url: string
+  filename?: string
+}
+
+export interface QuestionOption {
+  label: string
+  description?: string
+}
+
+export interface QuestionInfo {
+  question: string
+  header: string
+  options: QuestionOption[]
+  multiple?: boolean
+  custom?: boolean
+}
+
+// Shape returned by GET /question and carried in the question.asked event.
+export interface QuestionRequest {
+  id: string
+  sessionID: string
+  questions: QuestionInfo[]
+  tool?: string
+}
+
 export interface QuestionAskedEvent extends Event {
   type: 'question.asked'
-  properties: {
-    id: string
-    sessionID: string
-    question: string
-    options?: string[]
-    header?: string
-  }
+  properties: QuestionRequest
 }
 
 export interface SessionErrorEvent extends Event {

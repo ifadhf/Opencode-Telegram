@@ -137,7 +137,12 @@ export class OpenCodeServer {
   async stop(): Promise<void> {
     const log = getLogger()
 
-    if (!this.process || this.process.killed) {
+    if (!this.process) {
+      return
+    }
+
+    if (this.process.killed || this.process.exitCode !== null || this.process.signalCode !== null) {
+      this.process = null
       return
     }
 
@@ -153,10 +158,12 @@ export class OpenCodeServer {
       this.process!.kill('SIGTERM')
 
       setTimeout(() => {
-        if (this.process && !this.process.killed) {
+        if (this.process) {
           log.warn('Force killing OpenCode server...')
           this.process.kill('SIGKILL')
+          this.process = null
         }
+        resolve()
       }, 5000)
     })
   }

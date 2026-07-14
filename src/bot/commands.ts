@@ -4,7 +4,25 @@ import { OpenCodeClient, Model, Provider } from '../opencode/client.js'
 import { EventProcessor } from '../opencode/events.js'
 import { escapeMarkdown, splitMessage } from '../utils/formatter.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE_SIZE } from './history.js'
+import { buildDirBrowser, listSubdirs, setBrowseState } from './dirBrowser.js'
 import { getLogger } from '../utils/logger.js'
+
+// Build the "Available Providers" message. Pure + exported so it can be unit
+// tested and, crucially, chunked with splitMessage before sending (a long
+// provider list otherwise exceeds Telegram's 4096-char limit -> 400).
+export function formatProvidersList(providers: Array<{ id: string; models?: Record<string, any> }>): string {
+  let message = '*Available Providers:*\n\n'
+  for (let i = 0; i < providers.length; i++) {
+    const p = providers[i]
+    const modelCount = Object.keys(p.models || {}).length
+    message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+  }
+  message += '\nUse `/models <provider>` to see models for a provider.'
+  if (providers.length > 0) {
+    message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
+  }
+  return message
+}
 
 export function registerCommands(
   bot: Bot,
@@ -593,16 +611,10 @@ export function registerCommands(
 
       providersCache.set(ctx.chat.id, providers)
 
-      let message = '*Available Providers:*\n\n'
-      for (let i = 0; i < providers.length; i++) {
-        const p = providers[i]
-        const modelCount = Object.keys(p.models || {}).length
-        message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+      const message = formatProvidersList(providers)
+      for (const chunk of splitMessage(message)) {
+        await ctx.reply(chunk, { parse_mode: 'Markdown' })
       }
-      message += '\nUse `/models <provider>` to see models for a provider.'
-      message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
-
-      await ctx.reply(message, { parse_mode: 'Markdown' })
     } catch (error) {
       await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
     }
@@ -631,16 +643,10 @@ export function registerCommands(
 
         providersCache.set(ctx.chat.id, providers)
 
-        let message = '*Available Providers:*\n\n'
-        for (let i = 0; i < providers.length; i++) {
-          const p = providers[i]
-          const modelCount = Object.keys(p.models || {}).length
-          message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+        const message = formatProvidersList(providers)
+        for (const chunk of splitMessage(message)) {
+          await ctx.reply(chunk, { parse_mode: 'Markdown' })
         }
-        message += '\nUse `/models <provider>` to see models.'
-        message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
-
-        await ctx.reply(message, { parse_mode: 'Markdown' })
       } catch (error) {
         await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
       }
@@ -966,46 +972,18 @@ export function registerCommands(
     }
 
     try {
+      // Start a navigable browser at ~/workspace; the user can descend, go up
+      // (..), paginate, and Select this folder. State is kept server-side.
       const homeDir = process.env.HOME || '/home/fadh'
-      const workspaceDir = `${homeDir}/workspace`
+      const startDir = `${homeDir}/workspace`
+      const subdirs = await listSubdirs(client, startDir).catch(() => [])
+      setBrowseState(ctx.chat.id, threadId, { path: startDir, subdirs, page: 0 })
 
-      const dirs: Array<{ label: string; path: string }> = []
-
-      try {
-        const workspaceEntries = await client.listFiles(workspaceDir)
-        if (workspaceEntries.entries) {
-          for (const entry of workspaceEntries.entries.slice(0, 10)) {
-            if (entry.isDir && !entry.name.startsWith('.')) {
-              dirs.push({ label: `📁 ${entry.name}`, path: entry.path || `${workspaceDir}/${entry.name}` })
-            }
-          }
-        }
-      } catch {
-        // Ignore
-      }
-
-      if (dirs.length === 0) {
-        await ctx.reply(
-          'No directories found. Use `/newtopic <path>` to create a session directly.\n' +
-          'Example: `/newtopic /home/fadh/workspace/my-project`',
-          { parse_mode: 'Markdown' }
-        )
-        return
-      }
-
-      const inlineKeyboard = dirs.map(d => [{
-        text: d.label,
-        callback_data: `dir:${d.path}`,
-      }])
-
-      await ctx.reply(
-        '*Select a directory for this topic:*\n\n' +
-        `Or use \`/newtopic <path>\` for a custom directory.`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: inlineKeyboard },
-        }
-      )
+      const view = buildDirBrowser(startDir, subdirs, 0)
+      await ctx.reply(view.text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: view.inlineKeyboard },
+      })
     } catch (error) {
       await ctx.reply(`Failed to list directories: ${(error as Error).message}`)
     }

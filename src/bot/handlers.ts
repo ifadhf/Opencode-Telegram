@@ -7,6 +7,9 @@ import { MessageQueue } from './queue.js'
 import { getLogger } from '../utils/logger.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './history.js'
 import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
+import { answerForIndex } from '../opencode/questionFormat.js'
+import { pickLargestPhoto, buildImagePart } from './photo.js'
+import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState } from './dirBrowser.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -128,6 +131,72 @@ export function registerHandlers(
           next.reject(error as Error)
         }
       }
+    }
+  })
+
+  // Handle photo messages (image → prompt to the agent)
+  bot.on('message:photo', async (ctx) => {
+    const userId = ctx.from?.id.toString()
+    if (userId !== process.env.AUTHORIZED_USER_ID) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    const threadId = getThreadId(ctx)
+    const { sessionId } = resolveSession(ctx, stateManager)
+    if (!sessionId) {
+      if (threadId > 0) {
+        await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      } else {
+        await ctx.reply('No session selected. Use /session to create or select one.')
+      }
+      return
+    }
+
+    // Images can't be queued (the queue only holds text) — ask to resend later.
+    if (messageQueue.isBusy(ctx.chat.id, threadId)) {
+      await ctx.reply("⏳ Agent is busy — please resend the photo once it's done (images can't be queued).")
+      return
+    }
+
+    const replyOpts: any = {}
+    if (threadId > 0) replyOpts.message_thread_id = threadId
+
+    try {
+      const largest = pickLargestPhoto(ctx.message.photo)
+      if (!largest) {
+        await ctx.reply('❌ Could not read the photo.')
+        return
+      }
+      const file = await ctx.api.getFile(largest.file_id)
+      const token = process.env.TELEGRAM_BOT_TOKEN
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`
+      const resp = await fetch(url)
+      const buffer = Buffer.from(await resp.arrayBuffer())
+      const mime = file.file_path?.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+      const part = buildImagePart(mime, buffer.toString('base64'), file.file_path?.split('/').pop() || 'photo.jpg')
+
+      const caption = ctx.message.caption || ''
+      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
+      const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
+      const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
+
+      stateManager.incrementPromptCount(ctx.chat.id)
+      messageQueue.setBusy(ctx.chat.id, threadId)
+      const workingMsg = await ctx.reply('📷 Image sent — OpenCode is working...', replyOpts)
+      eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
+
+      await client.sendAsyncMessage(sessionId, caption, {
+        providerId: selectedModel?.providerId,
+        modelId: selectedModel?.modelId,
+        agent: selectedMode,
+        files: [part],
+      })
+      log.info('Sent image to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
+    } catch (error) {
+      log.error('Failed to send image', { error: (error as Error).message })
+      messageQueue.setIdle(ctx.chat.id, threadId)
+      await ctx.reply(`❌ Failed to send image: ${(error as Error).message}`)
     }
   })
 
@@ -281,10 +350,19 @@ export function registerHandlers(
         const questionId = parts[1]
         const answerIndex = parseInt(parts[2], 10)
         try {
-          await client.replyQuestion(questionId, [String(answerIndex)])
-          const buttonText = `Option ${answerIndex + 1}`
-          await ctx.answerCallbackQuery(`Selected: ${buttonText}`)
-          await ctx.editMessageText(`✅ Answered: ${buttonText}`)
+          // Resolve the tapped index to its option LABEL (the API replies with
+          // labels, not indices) by re-reading the still-pending question.
+          const pending = await client.listQuestions().catch(() => [])
+          const req = pending.find(q => q.id === questionId)
+          const resolved = req ? answerForIndex(req, answerIndex) : undefined
+          if (!resolved) {
+            await ctx.answerCallbackQuery('This question is no longer active')
+            await ctx.editMessageText('⏱ Question expired').catch(() => {})
+            return
+          }
+          await client.replyQuestion(questionId, resolved.answers)
+          await ctx.answerCallbackQuery(`Selected: ${resolved.label}`)
+          await ctx.editMessageText(`✅ Answered: ${resolved.label}`).catch(() => {})
         } catch (error) {
           log.error('Failed to reply to question', { error: (error as Error).message })
           await ctx.answerCallbackQuery('Failed to answer')
@@ -351,6 +429,78 @@ export function registerHandlers(
         await ctx.answerCallbackQuery('Failed')
         await ctx.editMessageText(`❌ Failed to create session: ${(error as Error).message}`)
       }
+      return
+    }
+
+    // Navigable directory browser (for /newtopic)
+    if (data === 'dnoop') { await ctx.answerCallbackQuery(); return }
+    if (data.startsWith('dnav:') || data === 'dup' || data.startsWith('dpg:') || data === 'dpick' || data === 'dcancel') {
+      const threadId = getThreadId(ctx)
+      const chatId = ctx.chat!.id
+      const state = getBrowseState(chatId, threadId)
+      if (!state) {
+        await ctx.answerCallbackQuery('Browser expired — run /newtopic again')
+        return
+      }
+
+      if (data === 'dcancel') {
+        clearBrowseState(chatId, threadId)
+        await ctx.answerCallbackQuery('Cancelled')
+        await ctx.editMessageText('❌ Cancelled').catch(() => {})
+        return
+      }
+
+      if (data === 'dpick') {
+        try {
+          const oldBinding = stateManager.getTopicSession(chatId, threadId)
+          if (oldBinding) {
+            await eventProcessor.forceSessionIdle(oldBinding.sessionId, chatId, '↪️ New session created')
+          }
+          const session = await client.createSession(state.path)
+          stateManager.setTopicSession(chatId, threadId, { sessionId: session.id, cwd: state.path })
+          clearBrowseState(chatId, threadId)
+          await ctx.answerCallbackQuery('Session created')
+          await ctx.editMessageText(
+            `✅ *New session created*\n` +
+            `Directory: \`${state.path}\`\n\n` +
+            `Send any message to start!`,
+            { parse_mode: 'Markdown' }
+          )
+        } catch (error) {
+          log.error('Failed to create topic session', { error: (error as Error).message })
+          await ctx.answerCallbackQuery('Failed')
+          await ctx.editMessageText(`❌ Failed to create session: ${(error as Error).message}`)
+        }
+        return
+      }
+
+      // Navigation: compute the new path/page, (re)list if the path changed, re-render.
+      let newPath = state.path
+      let newPage = state.page
+      if (data.startsWith('dnav:')) {
+        const idx = parseInt(data.slice('dnav:'.length), 10)
+        const target = state.subdirs[idx]
+        if (!target) { await ctx.answerCallbackQuery('That folder is gone'); return }
+        newPath = target.path
+        newPage = 0
+      } else if (data === 'dup') {
+        newPath = parentDir(state.path)
+        newPage = 0
+      } else if (data.startsWith('dpg:')) {
+        newPage = parseInt(data.slice('dpg:'.length), 10) || 0
+      }
+
+      const subdirs = newPath !== state.path
+        ? await listSubdirs(client, newPath).catch(() => [])
+        : state.subdirs
+      setBrowseState(chatId, threadId, { path: newPath, subdirs, page: newPage })
+
+      const view = buildDirBrowser(newPath, subdirs, newPage)
+      await ctx.answerCallbackQuery()
+      await ctx.editMessageText(view.text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: view.inlineKeyboard },
+      }).catch(() => {})
       return
     }
 

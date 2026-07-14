@@ -1,533 +1,266 @@
-# OpenCode Telegram Bot
+# Opencode-Telegram
 
-Control your [OpenCode](https://github.com/opencode-ai/opencode) server from Telegram. This bot acts as a relay between Telegram and your local OpenCode server, allowing you to prompt OpenCode, manage sessions, approve permissions, and monitor task execution directly from your phone or desktop.
+Bot Telegram untuk mengontrol [OpenCode](https://opencode.ai) dari Telegram — dengan dukungan forum topics (multi-sesi paralel), voice message transcription, history berpaginasi, dan notifikasi real-time.
+
+Fork dari [vineetkishore01/Opencode-Telegram](https://github.com/vineetkishore01/Opencode-Telegram) dengan lapisan UX ala ccbot — backend API OpenCode (HTTP + SSE), bukan tmux.
 
 ## ✨ Features
 
-- **Local-First**: Everything runs on your machine - no cloud, no tunnels, no remote exposure
-- **Real-time Updates**: SSE-based event streaming for instant notifications
-- **Session Management**: Create, list, switch between OpenCode sessions
-- **Permission Handling**: Approve/reject file access and tool execution requests
-- **Message Queueing**: Automatically queues multiple prompts when OpenCode is busy
-- **Model/Mode Selection**: Choose AI providers, models, and modes (build/plan/review)
-- **File Operations**: List files, view content, search code
-- **Cost Tracking**: Monitor token usage and costs per session
+- **Local-First** — semua berjalan di mesin lokal, tidak ada cloud/tunnel
+- **Forum Topics / Multi-Sesi** — 1 topic = 1 sesi OpenCode, bisa paralel di project berbeda
+- **Voice Message → Transkrip** — kirim voice note, otomatis ditranskrip via OpenAI Whisper, lanjut sebagai prompt
+- **History Berpaginasi** — `/history` dengan inline keyboard `◀ Older / Newer ▶`, 5 pesan per halaman
+- **Notifikasi Real-time** — SSE-based event streaming, ringkasan tool, thinking blockquote (flag-based)
+- **Permission Handling** — approve/reject via tombol inline (Once/Always/Reject)
+- **Session Management** — create, list, switch, continue session
+- **Model & Mode Selection** — pilih provider, model, mode (build/plan) per-sesi
+- **Message Queueing** — antrikan prompt saat OpenCode sibuk
+- **File Operations** — `/files` list, `/file` view, `/find` search
+- **Cost Tracking** — `/cost` monitor token usage per sesi
+- **Health Monitor** — auto-deteksi crash server OpenCode + restart otomatis
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Prasyarat
 
-- [Node.js](https://nodejs.org/) (v18 or higher)
-- [OpenCode](https://github.com/opencode-ai/opencode) installed globally: `npm install -g opencode-ai`
-- A Telegram account
+- [Node.js](https://nodejs.org/) ≥ 18
+- [OpenCode](https://opencode.ai) CLI: `npm install -g opencode-ai`
+- Akun Telegram
+- (Opsional untuk voice) OpenAI API key
 
-### Installation
+### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/vineetkishore01/Opencode-Telegram.git
+git clone https://github.com/ifadhf/Opencode-Telegram.git
 cd Opencode-Telegram
-
-# Install dependencies
 npm install
-
-# Build TypeScript
 npm run build
-
-# Install globally (may need sudo)
-sudo npm install -g .
 ```
 
-### First Run
+### Konfigurasi
 
-Navigate to any project directory and run:
+Salin `.env.example` ke `.env`:
 
 ```bash
-opencode-tele
+cp .env.example .env
 ```
 
-The bot will guide you through setup:
+Isi minimal:
 
-1. **Telegram Bot Token**: Get from [@BotFather](https://t.me/botfather)
-   - Send `/newbot` and follow instructions
-   - Copy the token
-
-2. **Your User ID**: Get from [@userinfobot](https://t.me/userinfobot)
-   - Message @userinfobot on Telegram
-   - Copy your numeric user ID
-
-### What Happens on Startup
-
-```
-⏳ Starting OpenCode server...
-✅ OpenCode server started on port 4097
-🚀 Starting Telegram bot...
-📡 Connecting to OpenCode at http://127.0.0.1:4097
-✅ Telegram bot started as @yourbot
-
-📱 You receive: "🚀 OpenCode is Online 🔥"
+```env
+TELEGRAM_BOT_TOKEN=123:abc
+AUTHORIZED_USER_ID=456
 ```
 
-## 📖 Usage
+Variable lengkap — lihat [.env.example](.env.example).
 
-### Basic Commands
+### Jalankan
 
 ```bash
-opencode-tele                      # Start OpenCode + bot (local-only, no tunnel)
-opencode-tele -d /path/to/project  # Start in specific directory
-opencode-tele -p 5000              # Use different port
-opencode-tele --tunnel             # Enable Cloudflare tunnel for remote access
-opencode-tele --no-server          # Connect to existing OpenCode server
-opencode-tele --uninstall          # Remove project config
+npm run dev              # development (tsx, hot-reload)
+npm run build && npm start  # production build
 ```
 
-### Command-Line Options
-
-| Option | Description |
-|--------|-------------|
-| `-d, --directory <path>` | Project directory (default: current directory) |
-| `-p, --port <port>` | OpenCode server port (default: 4097) |
-| `--no-server` | Don't start OpenCode, connect to existing server |
-| `--tunnel` | **Enable Cloudflare tunnel** (default: disabled, local-only) |
-| `--uninstall` | Remove project configuration |
-| `-h, --help` | Show help |
-
-## 📱 Telegram Commands
-
-### Session Commands
-
-| Command | Description |
-|---------|-------------|
-| `/session` | Create a new OpenCode session |
-| `/session <id>` | Select existing session by ID |
-| `/sessions` | List 10 most recent sessions |
-| `/status` | Show current session, model, and mode |
-| `/abort` | Stop the currently running task |
-| `/delete` | Delete current session |
-| `/reset` | Reset relay tracking state |
-| `/clear` | Clear session, model, and mode settings |
-
-### Model Commands
-
-| Command | Description |
-|---------|-------------|
-| `/providers` | List available AI providers |
-| `/models <provider>` | List models for a provider |
-| `/model <provider> <model>` | Select a specific model |
-
-### Mode Commands
-
-| Command | Description |
-|---------|-------------|
-| `/mode <name>` | Select mode (e.g., `build` or `plan`) |
-
-### File Commands
-
-| Command | Description |
-|---------|-------------|
-| `/files [path]` | List files in directory |
-| `/file <path>` | View file content |
-| `/find <pattern>` | Search code |
-
-### Info Commands
-
-| Command | Description |
-|---------|-------------|
-| `/cost` | Show token usage and cost |
-| `/todo` | Show task list |
-| `/diff` | Show file changes |
-| `/help` | Show all commands |
-
-## 🛠️ OpenCode Tools
-
-OpenCode provides the LLM with built-in tools that are automatically available during sessions. The bot relays tool events to Telegram in real-time.
-
-### Available Tools
-
-| Tool | Icon | Description |
-|------|------|-------------|
-| `bash` | 🖥️ | Execute shell commands |
-| `edit` | ✏️ | Modify existing files |
-| `write` | 📝 | Create or overwrite files |
-| `read` | 📖 | Read file contents |
-| `grep` | 🔍 | Search file contents (regex) |
-| `glob` | 🔍 | Find files by pattern |
-| `list` | 📁 | List directory contents |
-| `lsp` | 🔧 | LSP code intelligence (experimental) |
-| `apply_patch` | 🩹 | Apply patches to files |
-| `skill` | 🎓 | Load skill documentation |
-| `todowrite` | 📋 | Manage todo lists |
-| `webfetch` | 🌐 | Fetch web content from URLs |
-| `websearch` | 🔎 | Search the web (Exa AI) |
-| `question` | ❓ | Ask user questions (MCQs) |
-
-### Web Search
-
-OpenCode supports two web-related tools:
-
-- **`websearch`**: Performs web searches using Exa AI. Useful for finding current information, researching topics, or gathering information beyond training data. Requires `OPENCODE_ENABLE_EXA=1` environment variable or using the OpenCode provider.
-- **`webfetch`**: Fetches and reads content from specific URLs. Useful for looking up documentation or retrieving content from known sources.
-
-To enable web search when starting the bot:
+Atau via CLI:
 
 ```bash
-OPENCODE_ENABLE_EXA=1 opencode-tele
+opencode-tele -d /path/to/project
+opencode-tele -d /path/to/project -p 5000
+opencode-tele --no-server   # connect ke OpenCode server yang sudah jalan
 ```
 
-### Question Handling
+---
 
-When the LLM needs clarification or user input, it can ask questions via the `question` tool. The bot displays these as inline keyboards with:
-- Option buttons for each choice
-- A "Skip" button to dismiss the question
-- Support for custom answers when no options are provided
+## 📋 Commands
 
-Questions are displayed with a ❓ header and the question text.
+### Session & Project
 
-## 🛠️ OpenCode Tools
+| Command | Deskripsi |
+|---|---|
+| `/session` | Buat sesi baru / lihat sesi aktif |
+| `/sessions` | List sesi terbaru |
+| `/continue` | Lanjutkan sesi lama (pilih dari list) |
+| `/clear` | Hapus sesi & setting saat ini |
+| `/newtopic` | Buat sesi baru di forum topic (dengan directory browser) |
+| `/status` | Lihat status sesi (ID, model, mode, cwd) |
+| `/working` | Lihat apa yang sedang dikerjakan OpenCode |
+| `/abort` | Hentikan task yang sedang berjalan |
 
-OpenCode provides the LLM with built-in tools that are automatically available during sessions. The bot relays tool events to Telegram in real-time.
+### Model & Mode
 
-### Available Tools
+| Command | Deskripsi |
+|---|---|
+| `/providers` | List AI provider |
+| `/models` | List model untuk provider |
+| `/model` | Pilih / lihat model saat ini |
+| `/modes` | List mode yang tersedia |
+| `/mode` | Pilih mode (build / plan) |
 
-| Tool | Icon | Description |
-|------|------|-------------|
-| `bash` | 🖥️ | Execute shell commands |
-| `edit` | ✏️ | Modify existing files |
-| `write` | 📝 | Create or overwrite files |
-| `read` | 📖 | Read file contents |
-| `grep` | 🔍 | Search file contents (regex) |
-| `glob` | 🔍 | Find files by pattern |
-| `list` | 📁 | List directory contents |
-| `lsp` | 🔧 | LSP code intelligence (experimental) |
-| `apply_patch` | 🩹 | Apply patches to files |
-| `skill` | 🎓 | Load skill documentation |
-| `todowrite` | 📋 | Manage todo lists |
-| `webfetch` | 🌐 | Fetch web content from URLs |
-| `websearch` | 🔎 | Search the web (Exa AI) |
-| `question` | ❓ | Ask user questions (MCQs) |
+### Files & Code
 
-### Web Search
+| Command | Deskripsi |
+|---|---|
+| `/files` | List file project |
+| `/file <path>` | Lihat isi file |
+| `/find <query>` | Search kode |
 
-OpenCode supports two web-related tools:
+### History & Voice
 
-- **`websearch`**: Performs web searches using Exa AI. Useful for finding current information, researching topics, or gathering information beyond training data. Requires `OPENCODE_ENABLE_EXA=1` environment variable or using the OpenCode provider.
-- **`webfetch`**: Fetches and reads content from specific URLs. Useful for looking up documentation or retrieving content from known sources.
+| Command | Deskripsi |
+|---|---|
+| `/history [page]` | Lihat riwayat pesan sesi (5/halaman, inline nav) |
+| `:voice` (voice note) | Kirim voice note → transkrip → prompt |
 
-To enable web search when starting the bot:
+### Info & Utility
+
+| Command | Deskripsi |
+|---|---|
+| `/start` | Welcome message |
+| `/help` | List semua command |
+| `/cost` | Lihat token usage & cost |
+| `/todo` | Lihat task list OpenCode |
+| `/diff` | Lihat file changes |
+
+---
+
+## 🎛️ Feature Flags
+
+Kontrol verbositas notifikasi via environment variable. Semua default `false` (quiet mode):
+
+| Flag | Default | Efek |
+|---|---|---|
+| `SHOW_TOOL_CALLS` | `false` | Tampilkan tiap tool call sebagai notifikasi terpisah |
+| `SHOW_THINKING` | `false` | Tampilkan reasoning text sebagai blockquote |
+| `SHOW_TOKENS` | `false` | Tampilkan token usage di notifikasi completion |
+
+```env
+SHOW_TOOL_CALLS=true
+SHOW_THINKING=true
+SHOW_TOKENS=true
+```
+
+---
+
+## 🧵 Forum Topics (Multi-Sesi)
+
+Bot mendukung Telegram forum topics — setiap topic bisa punya sesi OpenCode sendiri di project berbeda.
+
+**Setup:**
+1. Buat group Telegram → `Group Type = Forum`
+2. Invite bot sebagai **admin**
+3. Di topic baru, kirim `/newtopic` → pilih directory dari inline keyboard
+4. Prompt berikutnya otomatis terikat ke sesi topic tersebut
+
+**Perilaku:**
+- Setiap topic punya sesi, model, mode, dan cwd independen
+- Notifikasi tidak tertukar antar topic
+- `/status`, `/clear`, `/abort`, `/model`, `/mode` semua sadar topic
+- Topic dihapus → binding dilepas otomatis
+
+---
+
+## 🎤 Voice Messages
+
+Kirim voice note langsung ke bot — akan ditranskrip via OpenAI Whisper API, lalu diteruskan sebagai prompt.
+
+**Prasyarat:**
+```env
+OPENAI_API_KEY=sk-...
+# OPENAI_BASE_URL=https://api.openai.com/v1  # opsional
+```
+
+Voice message mengikuti flow yang sama dengan teks: resolve sesi → transkrip → kirim prompt → queue jika busy.
+
+---
+
+## 🚢 Deployment (systemd)
+
+Deploy sebagai systemd user service (pola sama seperti ccbot):
 
 ```bash
-OPENCODE_ENABLE_EXA=1 opencode-tele
+# 1. Clone ke /opt
+sudo mkdir -p /opt/opencode-telegram
+sudo chown $USER:$USER /opt/opencode-telegram
+git clone https://github.com/ifadhf/Opencode-Telegram.git /opt/opencode-telegram
+cd /opt/opencode-telegram
+npm install && npm run build
+
+# 2. Copy .env
+cp .env.example .env
+# edit .env dengan token & user ID
+
+# 3. Buat systemd user service
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/opencode-tele.service << 'EOF'
+[Unit]
+Description=opencode-tele - Telegram bridge for OpenCode
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/opencode-telegram
+Environment=PATH=/home/USER/.nvm/versions/node/v20/bin:/home/USER/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/USER/.nvm/versions/node/v20/bin/node /opt/opencode-telegram/dist/index.js -d /path/to/your/project
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+# 4. Enable & start
+systemctl --user daemon-reload
+systemctl --user enable --now opencode-tele
+
+# 5. Enable linger (supaya tetap jalan setelah logout)
+loginctl enable-linger
 ```
 
-### Question Handling
-
-When the LLM needs clarification or user input, it can ask questions via the `question` tool. The bot displays these as inline keyboards with:
-- Option buttons for each choice
-- A "Skip" button to dismiss the question
-- Support for custom answers when no options are provided
-
-Questions are displayed with a ❓ header and the question text.
-
-### Quick Start Guide
-
-1. **Create session**: Send `/session`
-2. **Send prompt**: Just type any message (e.g., "create a todo app")
-3. **Watch progress**: Receive real-time updates on thinking, tools, and completion
-4. **Queue messages**: If busy, messages auto-queue with position notification
-
-## 🔧 Architecture
-
-### System Overview
-
-```mermaid
-graph TB
-    User["👤 User (Telegram)"]
-    Bot["🤖 Telegram Bot (grammY)"]
-    Queue["📬 Message Queue (Atomic)"]
-    Client["🌐 OpenCode Client (HTTP/SSE)"]
-    Server["⚙️ OpenCode Server (localhost)"]
-    State["💾 State Manager (JSON)"]
-    Events["📡 Event Processor (SSE)"]
-    Perms["🔐 Permission Handler"]
-
-    User -->|"Messages & Commands"| Bot
-    Bot -->|"Non-command text"| Queue
-    Queue -->|"Relay prompt"| Client
-    Client -->|"POST /prompt_async"| Server
-    Server -->|"SSE /event"| Events
-    Events -->|"Notifications"| User
-    Bot -->|"Permission replies"| Perms
-    Perms -->|"POST /permissions"| Server
-    Bot -->|"State queries"| State
-    Events -->|"State updates"| State
+**Command berguna:**
+```bash
+systemctl --user status opencode-tele
+journalctl --user -u opencode-tele -f
+systemctl --user restart opencode-tele
 ```
 
-### Event Flow
+---
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant T as Telegram Bot
-    participant Q as Message Queue
-    participant OC as OpenCode Client
-    participant S as OpenCode Server
-    participant E as Event Processor
+## 🔧 Environment Variables
 
-    U->>T: Send message
-    T->>Q: Check busy state
-    alt Session busy
-        Q->>T: Queue message (position N)
-    else Session idle
-        Q->>T: Send "Working..."
-        T->>OC: POST /prompt_async
-        OC->>S: Send prompt
-        S-->>E: SSE: message.started
-        E->>U: "OpenCode is working..."
-        S-->>E: SSE: tool.started (websearch, bash, etc.)
-        E->>U: Tool notification
-        S-->>E: SSE: question.asked
-        E->>U: Question with inline keyboard
-        U->>T: Select option
-        T->>OC: POST /question/{id}/reply
-        OC->>S: Submit answer
-        S-->>E: SSE: message.completed
-        E->>U: "✅ Done!"
-        Q->>T: Process next queued message
-    end
-```
+| Variable | Required | Default | Deskripsi |
+|---|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | ✅ | — | Token bot dari @BotFather |
+| `AUTHORIZED_USER_ID` | ✅ | — | Telegram user ID |
+| `OPENCODE_SERVER_URL` | ❌ | `http://127.0.0.1:4097` | URL server OpenCode |
+| `OPENCODE_SERVER_USERNAME` | ❌ | — | Basic auth username |
+| `OPENCODE_SERVER_PASSWORD` | ❌ | — | Basic auth password |
+| `OPENAI_API_KEY` | ❌* | — | API key OpenAI (wajib untuk voice) |
+| `OPENAI_BASE_URL` | ❌ | `https://api.openai.com/v1` | Custom OpenAI-compatible endpoint |
+| `SHOW_TOOL_CALLS` | ❌ | `false` | Tampilkan tool call notif |
+| `SHOW_THINKING` | ❌ | `false` | Tampilkan reasoning text |
+| `SHOW_TOKENS` | ❌ | `false` | Tampilkan token usage |
+| `LOG_LEVEL` | ❌ | `debug` | `debug` / `info` / `warn` / `error` |
 
-### Component Interactions
+---
 
-```mermaid
-graph LR
-    subgraph "Telegram Layer"
-        Cmd["Commands (23)"]
-        Hdl["Handlers"]
-        Q["Queue"]
-    end
-
-    subgraph "OpenCode Layer"
-        Clt["HTTP Client"]
-        Srv["Server Manager"]
-        Evts["Event Processor"]
-        Perm["Permission Handler"]
-    end
-
-    subgraph "State Layer"
-        State["StateManager"]
-        Config["Config"]
-    end
-
-    Cmd --> Hdl
-    Hdl --> Q
-    Hdl --> Clt
-    Hdl --> Perm
-    Evts --> Hdl
-    Clt --> Srv
-    State --> Cmd
-    State --> Hdl
-    Config --> Clt
-```
-
-### Key Design Decisions
-
-| Component | Implementation |
-|-----------|----------------|
-| **Event Stream** | SSE (Server-Sent Events) - no polling |
-| **Server Management** | Bot starts/stops OpenCode automatically |
-| **Network** | Localhost only - no tunnels, no remote access |
-| **Message Queue** | Atomic enqueue to prevent race conditions |
-| **Security** | Single authorized user, no multi-tenant support |
-| **Question Handling** | Inline keyboards with option buttons + skip |
-| **Permission Handling** | Inline keyboards with Once/Always/Reject |
-| **Question Handling** | Inline keyboards with option buttons + skip |
-| **Permission Handling** | Inline keyboards with Once/Always/Reject |
-
-## ⚙️ Configuration
-
-### Project Configuration
-
-Stored in `.opencode-tele/` per project:
-
-```
-project/
-├── .opencode-tele/
-│   ├── config.json    # Bot token, user ID
-│   ├── state.json     # Sessions, models, modes
-│   └── bot.log        # Log file
-```
-
-### Environment Variables
-
-Alternative to config files:
+## 🧪 Testing
 
 ```bash
-export TELEGRAM_BOT_TOKEN="your-bot-token"
-export AUTHORIZED_USER_ID="your-user-id"
-export OPENCODE_SERVER_URL="http://127.0.0.1:4097"
-export LOG_LEVEL="info"
-```
+# TDD contracts (dari folder Opencode-Telegram)
+node --test test/f2/prereq-api.mjs test/f2/state-contract.mjs
+node --test test/f3/prereq-api.mjs test/f3/voice-contract.mjs test/f3/history-contract.mjs
+node --test test/f4/prereq-api.mjs test/f4/health-contract.mjs test/f4/config-contract.mjs
 
-### OpenCode Pure Mode (Default)
-
-By default, the bot starts OpenCode with `--pure` flag to disable:
-- Push notifications via cloud tunnels
-- External plugins
-- Remote access features
-
-This ensures everything stays local on `127.0.0.1`.
-
-### Enabling Remote Access (Optional)
-
-If you need remote access, use the `--tunnel` flag:
-
-```bash
-opencode-tele --tunnel
-```
-
-This starts OpenCode **without** `--pure`, allowing it to create Cloudflare tunnels for remote access.
-
-⚠️ **Security Warning**: Only use `--tunnel` if you:
-- Understand the security implications
-- Need remote access from outside your network
-- Trust the OpenCode push notification system
-
-## 🛑 Shutdown Behavior
-
-Press `Ctrl+C` to stop:
-
-```
-🔴 Stopping services...
-[OpenCode server stopped]
-[Telegram bot stopped]
-✅ Goodbye!
-
-📱 You receive: "🔴 OpenCode is going down 🔥"
-```
-
-## 🐛 Troubleshooting
-
-### Port Already in Use
-
-```bash
-# Use a different port
-opencode-tele -p 5000
-
-# Or stop existing server first
-lsof -ti:4097 | xargs kill
-```
-
-### OpenCode Not Installed
-
-```bash
-npm install -g opencode-ai
-opencode --version  # Verify
-```
-
-### Bot Not Responding
-
-1. Check logs: `cat .opencode-tele/bot.log`
-2. Verify bot token with [@BotFather](https://t.me/botfather)
-3. Ensure your user ID matches config
-
-### SSE Connection Failed
-
-If you see `SSE connection failed` in logs:
-- This is normal if OpenCode doesn't support SSE
-- Bot will still work via HTTP requests
-- Events won't be real-time but will be processed
-
-### Session Stuck
-
-```bash
-# In Telegram
-/abort   # Stop current task
-/clear   # Clear session state
-/session # Create new session
-```
-
-## 📝 Logging
-
-Logs written to `.opencode-tele/bot.log`:
-
-```bash
-# View logs
-tail -f .opencode-tele/bot.log
-
-# Set log level
-export LOG_LEVEL=debug
-```
-
-Levels: `debug` | `info` | `warn` | `error`
-
-## 🧹 Uninstallation
-
-```bash
-# Remove global command
-sudo npm uninstall -g opencode-tele
-
-# Clean project configs
-opencode-tele --uninstall
-
-# Or manually remove
-rm -rf .opencode-tele/
-```
-
-## 🏗️ Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Run in development mode
-npm run dev
-
-# Type check
+# Typecheck
 npm run typecheck
 ```
 
-## 📦 Project Structure
+---
 
-```
-src/
-├── bot/
-│   ├── commands.ts      # Telegram commands
-│   ├── handlers.ts      # Message handlers
-│   ├── index.ts         # TelegramBot class
-│   └── queue.ts         # Message queue (atomic operations)
-├── opencode/
-│   ├── client.ts        # HTTP client with SSE
-│   ├── events.ts        # Event processor
-│   ├── permission.ts    # Permission handling
-│   └── server.ts        # OpenCode server management
-├── state/
-│   └── manager.ts       # State persistence
-├── utils/
-│   ├── config.ts        # Configuration
-│   ├── formatter.ts     # Telegram formatting
-│   └── logger.ts        # Logging
-├── types/
-│   └── index.ts         # TypeScript types
-└── index.ts             # CLI entry point
-```
+## 🔗 Referensi
 
-## 🤝 Contributing
-
-Contributions welcome! Please:
-
-1. Open an issue to discuss the change
-2. Fork and create a PR
-3. Ensure tests pass
-
-## 📜 License
-
-MIT License
-
-## 🙏 Acknowledgments
-
-- [OpenCode](https://github.com/opencode-ai/opencode) - AI coding CLI
-- [grammy](https://grammy.dev/) - Telegram Bot framework
-- [@BotFather](https://t.me/botfather) - Telegram bot creation
+- [OpenCode](https://opencode.ai) — backend AI agent
+- [grammY](https://grammy.dev) — framework Telegram bot
+- [ccbot](https://github.com/six-ddc/ccbot) — acuan UX (Telegram ↔ Claude Code)
+- Upstream: [vineetkishore01/Opencode-Telegram](https://github.com/vineetkishore01/Opencode-Telegram)
