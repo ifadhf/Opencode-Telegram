@@ -7,6 +7,7 @@ import { MessageQueue } from './queue.js'
 import { getLogger } from '../utils/logger.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './history.js'
 import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
+import { answerForIndex } from '../opencode/questionFormat.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -281,10 +282,19 @@ export function registerHandlers(
         const questionId = parts[1]
         const answerIndex = parseInt(parts[2], 10)
         try {
-          await client.replyQuestion(questionId, [String(answerIndex)])
-          const buttonText = `Option ${answerIndex + 1}`
-          await ctx.answerCallbackQuery(`Selected: ${buttonText}`)
-          await ctx.editMessageText(`✅ Answered: ${buttonText}`)
+          // Resolve the tapped index to its option LABEL (the API replies with
+          // labels, not indices) by re-reading the still-pending question.
+          const pending = await client.listQuestions().catch(() => [])
+          const req = pending.find(q => q.id === questionId)
+          const resolved = req ? answerForIndex(req, answerIndex) : undefined
+          if (!resolved) {
+            await ctx.answerCallbackQuery('This question is no longer active')
+            await ctx.editMessageText('⏱ Question expired').catch(() => {})
+            return
+          }
+          await client.replyQuestion(questionId, resolved.answers)
+          await ctx.answerCallbackQuery(`Selected: ${resolved.label}`)
+          await ctx.editMessageText(`✅ Answered: ${resolved.label}`).catch(() => {})
         } catch (error) {
           log.error('Failed to reply to question', { error: (error as Error).message })
           await ctx.answerCallbackQuery('Failed to answer')

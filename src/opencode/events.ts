@@ -5,6 +5,8 @@ import { PermissionHandler } from './permission.js'
 import { MessageQueue } from '../bot/queue.js'
 import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
 import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
+import { renderQuestion } from './questionFormat.js'
+import { QuestionRequest } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
 interface BusySessionInfo {
@@ -42,6 +44,7 @@ export class EventProcessor {
   private consecutiveErrors = 0
   private maxConsecutiveErrors = 10
   private busySessions = new Map<string, BusySessionInfo>()
+  private sentQuestions = new Set<string>()
   private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number; threadId: number }>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
@@ -67,6 +70,7 @@ export class EventProcessor {
     while (this.running) {
       try {
         await this.permissionHandler.checkPendingPermissions().catch(() => {})
+        await this.checkPendingQuestions().catch(() => {})
 
         // Discover busy sessions via topic bindings
         const topicBindings = this.stateManager.getAllTopicBindings()
@@ -781,44 +785,41 @@ export class EventProcessor {
     )
   }
 
-  private async handleQuestionAsked(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
+  // Poll GET /question for pending interactive questions and surface each new
+  // one as tappable buttons. OpenCode has no push on the polling path, so we
+  // mirror checkPendingPermissions. sentQuestions dedupes across polls; ids no
+  // longer pending are pruned so a genuine re-ask surfaces again.
+  private async checkPendingQuestions(): Promise<void> {
+    try {
+      const pending = await this.client.listQuestions()
+      const activeIds = new Set(pending.map(q => q.id))
+      for (const id of [...this.sentQuestions]) {
+        if (!activeIds.has(id)) this.sentQuestions.delete(id)
+      }
+      for (const req of pending) {
+        if (this.sentQuestions.has(req.id)) continue
+        this.sentQuestions.add(req.id)
+        await this.sendQuestionPrompt(req)
+      }
+    } catch {
+      // Non-fatal: endpoint unavailable / older server — skip this poll.
+    }
+  }
+
+  private async sendQuestionPrompt(req: QuestionRequest): Promise<void> {
+    const target = this.resolveSessionChat(req.sessionID)
     if (!target) return
 
     const log = getLogger()
-    log.info('Question asked', { questionId: event.id, sessionID: event.sessionID })
+    log.info('Question asked', { questionId: req.id, sessionID: req.sessionID })
 
-    const questionText = event.question || 'OpenCode has a question'
-    const options: string[] = event.options || []
-    const header = event.header || 'Question'
+    const { text, inlineKeyboard } = renderQuestion(req)
+    const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
+    if (target.threadId > 0) opts.message_thread_id = target.threadId
 
-    let message = `❓ *${escapeMarkdown(header)}*\n\n${escapeMarkdown(questionText)}`
-
-    if (options.length > 0) {
-      const inlineKeyboard = options.map((opt, idx) => [{
-        text: opt,
-        callback_data: `q:${event.id}:${idx}`,
-      }])
-
-      inlineKeyboard.push([{
-        text: '❌ Dismiss',
-        callback_data: `q:reject:${event.id}`,
-      }])
-
-      const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
-      if (target.threadId > 0) opts.message_thread_id = target.threadId
-
-      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
-        log.error('Failed to send question', { error: (error as Error).message })
-      })
-    } else {
-      message += '\n\n_Reply to this message with your answer._'
-      const opts: any = { parse_mode: 'Markdown' }
-      if (target.threadId > 0) opts.message_thread_id = target.threadId
-      await this.bot.api.sendMessage(target.chatId, message, opts).catch(error => {
-        log.error('Failed to send question', { error: (error as Error).message })
-      })
-    }
+    await this.bot.api.sendMessage(target.chatId, text, opts).catch(error => {
+      log.error('Failed to send question', { error: (error as Error).message })
+    })
   }
 
   private async handleTodoUpdated(event: any): Promise<void> {

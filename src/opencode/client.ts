@@ -1,6 +1,6 @@
 import * as http from 'http'
 import * as https from 'https'
-import { SessionInfo, MessageInfo, PermissionRequest, PermissionReply } from '../types/index.js'
+import { SessionInfo, MessageInfo, PermissionRequest, PermissionReply, QuestionRequest } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
 export interface Model {
@@ -337,7 +337,13 @@ export class OpenCodeClient {
     return this.request(`/find?pattern=${encodeURIComponent(pattern)}`)
   }
 
-  async replyQuestion(questionId: string, answers: string[]): Promise<void> {
+  async listQuestions(): Promise<QuestionRequest[]> {
+    return this.request<QuestionRequest[]>('/question')
+  }
+
+  // answers is one array of selected option LABELS per question in the request
+  // (string[][]), matching OpenCode's /question/{id}/reply body.
+  async replyQuestion(questionId: string, answers: string[][]): Promise<void> {
     await this.request<void>(`/question/${encodeURIComponent(questionId)}/reply`, {
       method: 'POST',
       body: JSON.stringify({ answers }),
