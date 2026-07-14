@@ -6,6 +6,7 @@ import { MessageQueue } from '../bot/queue.js'
 import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
 import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
 import { renderQuestion } from './questionFormat.js'
+import { toTelegramMarkdown } from '../utils/markdown.js'
 import { QuestionRequest } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
@@ -479,8 +480,8 @@ export class EventProcessor {
           await this.sendWithRateLimit(
             chatId,
             busyInfo.threadId,
-            `🤔 *Thinking:*\n${escapeMarkdown(displayText)}`,
-            { parse_mode: 'Markdown' }
+            `🤔 *Thinking:*\n${toTelegramMarkdown(displayText)}`,
+            { parse_mode: 'MarkdownV2' }
           )
         }
 
@@ -489,9 +490,12 @@ export class EventProcessor {
           if (!part.text?.trim() || part.ignored || part.synthetic) continue
           const text = stripAnsi(part.text.trim())
           if (text) {
-            const chunks = splitMessage(`📝 *Response:*\n${escapeMarkdown(text)}`)
+            // Render the agent's Markdown as real MarkdownV2, then chunk (splitMessage
+            // is code-block aware, so fences survive the split).
+            const body = toTelegramMarkdown(text)
+            const chunks = splitMessage(`📝 *Response:*\n${body}`)
             for (const chunk of chunks) {
-              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'Markdown' })
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'MarkdownV2' })
             }
           }
         }
@@ -662,6 +666,21 @@ export class EventProcessor {
           const sendOpts = { ...options }
           if (threadId > 0) sendOpts.message_thread_id = threadId
           await this.bot.api.sendMessage(chatId, text, sendOpts)
+        } catch {
+          // Give up on this message
+        }
+        return
+      }
+      if (options?.parse_mode && error.description?.includes("can't parse entities")) {
+        // Formatting was rejected — resend as plain text (with Markdown escapes
+        // stripped) so the content is never lost to a parse error.
+        getLogger().warn('Markdown parse failed, resending as plain text', { error: error.description })
+        try {
+          const sendOpts = { ...options }
+          delete sendOpts.parse_mode
+          if (threadId > 0) sendOpts.message_thread_id = threadId
+          const plain = text.replace(/\\([_*[\]()~`>#+\-=|{}.!])/g, '$1')
+          await this.bot.api.sendMessage(chatId, plain, sendOpts)
         } catch {
           // Give up on this message
         }
