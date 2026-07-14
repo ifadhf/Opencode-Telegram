@@ -301,14 +301,17 @@ export function registerCommands(
       message += `Title: ${escapeMarkdown(sessionTitle)}\n`
 
       try {
-        const status = await client.getSessionStatus(sessionId)
-        const stateIcons: Record<string, string> = { idle: '💤', busy: '🔄', retry: '🔁' }
-        const stateLabels: Record<string, string> = { idle: 'Idle', busy: 'Running', retry: 'Retrying' }
-        const icon = stateIcons[status.status] || '❓'
-        const label = stateLabels[status.status] || status.status
-        message += `State: ${icon} ${label}\n`
+        const messages = await client.getMessages(sessionId, 1)
+        const lastMsg = messages[0]
+        const isRunning = lastMsg?.role === 'assistant'
+          && (!lastMsg.time?.completed || lastMsg.parts?.some((p: any) => p.state?.status === 'running'))
+        if (isRunning) {
+          message += `State: 🔄 Running\n`
+        } else {
+          message += `State: 💤 Idle\n`
+        }
       } catch {
-        // status endpoint might not be available
+        message += `State: ❓ Unknown\n`
       }
 
       message += `Directory: \`${escapeMarkdown(session.directory)}\`\n`
