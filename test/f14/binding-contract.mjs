@@ -47,6 +47,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       const { sm, dir } = await freshState()
       try {
         sm.setTopicSession(100, 200, 'ses_alpha')
+        await sm.flushSave()
         assert.equal(sm.getTopicSession(100, 200), 'ses_alpha')
       } finally { await rm(dir, { recursive: true, force: true }) }
     })
@@ -57,6 +58,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       const { sm, dir } = await freshState()
       try {
         sm.setTopicSession(100, 201, 'ses_beta')
+        await sm.flushSave()
         const result = sm.getTopicSession(100, 201)
         assert.equal(typeof result, 'string')
         assert.equal(result, 'ses_beta')
@@ -77,6 +79,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 10, 'ses_one')
         sm.setTopicSession(100, 20, 'ses_two')
+        await sm.flushSave()
 
         const topics = sm.getAllTopics(100)
         assert.equal(topics.length, 2)
@@ -97,6 +100,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 1, 'ses_aaa')
         sm.setTopicSession(200, 2, 'ses_bbb')
+        await sm.flushSave()
 
         assert.equal(sm.getAllTopics(100).length, 1)
         assert.equal(sm.getAllTopics(200).length, 1)
@@ -111,6 +115,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 300, 'ses_gamma')
         sm.clearTopicSession(100, 300)
+        await sm.flushSave()
         assert.equal(sm.getTopicSession(100, 300), undefined)
       } finally { await rm(dir, { recursive: true, force: true }) }
     })
@@ -120,6 +125,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 400, 'ses_delta')
         sm.clearTopicSession(100, 400)
+        await sm.flushSave()
 
         const resolved = sm.resolveChat('ses_delta')
         assert.equal(resolved, undefined)
@@ -223,8 +229,9 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 1, 'ses_ind_a')
         sm.setTopicSession(100, 2, 'ses_ind_b')
-
+        await sm.flushSave()
         sm.clearTopicSession(100, 1)
+        await sm.flushSave()
 
         assert.equal(sm.getTopicSession(100, 1), undefined)
         assert.equal(sm.getTopicSession(100, 2), 'ses_ind_b')
@@ -236,7 +243,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
       try {
         sm.setTopicSession(100, 10, 'ses_survive')
         sm.setTopicSession(100, 20, 'ses_cleared')
-
+        await sm.flushSave()
         sm.clearTopicSession(100, 20)
 
         const resolved = sm.resolveChat('ses_survive')
@@ -256,6 +263,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
         assert.equal(sm.getTopicSession(100, 1), 'ses_v1')
 
         sm.setTopicSession(100, 1, 'ses_v2')
+        await sm.flushSave()
         assert.equal(sm.getTopicSession(100, 1), 'ses_v2')
 
         const topics = sm.getAllTopics(100)
@@ -272,6 +280,7 @@ describe('F14 binding contract', { skip: !IMPL }, () => {
         assert.ok(before)
 
         sm.setTopicSession(100, 5, 'ses_new')
+        await sm.flushSave()
         assert.equal(
           sm.resolveChat('ses_old'), undefined,
           'old sessionId must be removed from sessionToTopic on overwrite'

@@ -316,6 +316,10 @@ export class StateManager {
 
   setTopicSession(chatId: number, threadId: number, sessionId: string): void {
     const key = this.topicKey(chatId, threadId)
+    const oldSessionId = this.state.topicBindings.get(key)
+    if (oldSessionId && oldSessionId !== sessionId) {
+      this.state.sessionToTopic.delete(oldSessionId)
+    }
     this.state.topicBindings.set(key, sessionId)
     this.state.sessionToTopic.set(sessionId, { chatId, threadId })
     this.save()

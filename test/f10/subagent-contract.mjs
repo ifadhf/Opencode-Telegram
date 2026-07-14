@@ -7,7 +7,8 @@ import { unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 
 // Initialize logger before importing modules that use getLogger()
-const { initLogger } = await import('../../dist/utils/logger.js')
+const loggerMod = await import('../../dist/utils/logger.js')
+const { initLogger, getLogger } = loggerMod
 initLogger({ logFile: '/tmp/opencode-test-f10.log', logLevel: 'error' })
 
 const STATE_FILE = '/tmp/opencode-test-f10-state.json'
@@ -23,6 +24,7 @@ const IMPL_STATE = !!(stateMod && typeof stateMod.StateManager === 'function')
 const IMPL_CLIENT = !!(clientMod && typeof clientMod.OpenCodeClient === 'function')
 
 async function cleanup() {
+  try { getLogger().close() } catch {}
   for (const f of [STATE_FILE, STATE_FILE_ALT, LOG_FILE]) {
     try { if (existsSync(f)) await unlink(f) } catch {}
   }
