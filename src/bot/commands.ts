@@ -40,11 +40,11 @@ export function registerCommands(
   const isAuthorized = (userId?: string) => userId === process.env.AUTHORIZED_USER_ID
 
   // Helper to resolve session from topic or legacy chat context
-  function resolveSessionFromCtx(ctx: any): { sessionId?: string; threadId: number; cwd?: string; model?: { providerId: string; modelId: string }; mode?: string } {
+  function resolveSessionFromCtx(ctx: any): { sessionId?: string; threadId: number } {
     const threadId = ctx.message?.message_thread_id ?? 0
     if (threadId > 0) {
-      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-      return { sessionId: binding?.sessionId, threadId, cwd: binding?.cwd, model: binding?.model, mode: binding?.mode }
+      const sessionId = stateManager.getTopicSession(ctx.chat.id, threadId)
+      return { sessionId, threadId }
     }
     return { sessionId: stateManager.getCurrentSession(ctx.chat.id), threadId: 0 }
   }
@@ -107,7 +107,7 @@ export function registerCommands(
           await eventProcessor.forceSessionIdle(oldId, ctx.chat.id, '↪️ Session switched', threadId)
         }
         if (threadId > 0) {
-          stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || '' })
+          stateManager.setTopicSession(ctx.chat.id, threadId, session.id)
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
@@ -125,7 +125,7 @@ export function registerCommands(
           await eventProcessor.forceSessionIdle(oldId, ctx.chat.id, '↪️ Session switched', threadId)
         }
         if (threadId > 0) {
-          stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || '' })
+          stateManager.setTopicSession(ctx.chat.id, threadId, session.id)
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
@@ -148,16 +148,10 @@ export function registerCommands(
     log.info('User command', { command: '/continue', userId: ctx.from?.id })
 
     try {
-      const threadId = ctx.message?.message_thread_id ?? 0
-      const cwd = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId)?.cwd : undefined
-      const sessions = await client.listSessions({ limit: 10, directory: cwd })
+      const sessions = await client.listSessions({ limit: 10 })
 
       if (sessions.length === 0) {
-        if (cwd) {
-          await ctx.reply(`No sessions found in <code>${escapeHtml(cwd)}</code>. Use /newtopic to create one.`, { parse_mode: 'HTML' })
-        } else {
-          await ctx.reply('No sessions found. Use /session to create a new one.')
-        }
+        await ctx.reply('No sessions found. Use /session to create a new one.')
         return
       }
 
@@ -185,9 +179,7 @@ export function registerCommands(
     log.info('User command', { command: '/sessions', userId: ctx.from?.id })
 
     try {
-      const threadId = ctx.message?.message_thread_id ?? 0
-      const cwd = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId)?.cwd : undefined
-      const sessions = await client.listSessions({ limit: 10, directory: cwd })
+      const sessions = await client.listSessions({ limit: 10 })
       if (sessions.length === 0) {
         await ctx.reply('No sessions found.')
         return
@@ -248,7 +240,7 @@ export function registerCommands(
     } else {
       stateManager.clearChatState(ctx.chat.id)
     }
-    await ctx.reply('Cleared current session, model, and mode settings.')
+    await ctx.reply('Cleared current session.')
   })
 
   // Status command
@@ -265,12 +257,11 @@ export function registerCommands(
     let sessionId: string | undefined
 
     if (threadId > 0) {
-      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-      if (!binding) {
+      sessionId = stateManager.getTopicSession(ctx.chat.id, threadId)
+      if (!sessionId) {
         await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
         return
       }
-      sessionId = binding.sessionId
     } else {
       const chatState = stateManager.getChatState(ctx.chat.id)
       sessionId = chatState.sessionId
@@ -348,13 +339,8 @@ export function registerCommands(
       message += `<b>Session:</b> <code>${escapeHtml(sessionId)}</code> (not found)\n\n`
     }
 
-    const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-    const topicModel = binding?.model
-    const model = topicModel || stateManager.getCurrentModel(ctx.chat.id)
-    if (model) {
-      message += `<b>Model:</b> ${escapeHtml(model.providerId)}/${escapeHtml(model.modelId)}\n\n`
-    } else if (sessionModel) {
-      message += `<b>Model:</b> <code>${escapeHtml(sessionModel.id)}</code> (session)\n\n`
+    if (sessionModel) {
+      message += `<b>Model:</b> <code>${escapeHtml(sessionModel.id)}</code>\n\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)
@@ -369,12 +355,8 @@ export function registerCommands(
       }
     }
 
-    const topicMode = binding?.mode
-    const mode = topicMode || stateManager.getCurrentMode(ctx.chat.id)
-    if (mode) {
-      message += `<b>Mode:</b> <code>${escapeHtml(mode)}</code>\n`
-    } else if (sessionAgent) {
-      message += `<b>Mode:</b> <code>${escapeHtml(sessionAgent)}</code> (session)\n`
+    if (sessionAgent) {
+      message += `<b>Mode:</b> <code>${escapeHtml(sessionAgent)}</code>\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)
@@ -417,8 +399,8 @@ export function registerCommands(
       return
     }
 
-    const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-    if (!binding) {
+    const sessionId = stateManager.getTopicSession(ctx.chat.id, threadId)
+    if (!sessionId) {
       await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
       return
     }
@@ -462,12 +444,6 @@ export function registerCommands(
 
     try {
       await client.moveSession(sessionId, directory, moveChanges)
-      if (threadId > 0) {
-        const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-        if (binding) {
-          stateManager.setTopicSession(ctx.chat.id, threadId, { ...binding, cwd: directory })
-        }
-      }
       const msg = moveChanges
         ? `✅ Session moved to <code>${escapeHtml(directory)}</code> (with uncommitted changes)`
         : `✅ Session moved to <code>${escapeHtml(directory)}</code>`
@@ -660,17 +636,12 @@ export function registerCommands(
 
     let dirPath = (ctx.match as string || '').trim() || undefined
     if (!dirPath) {
-      const threadId = ctx.message?.message_thread_id ?? 0
-      if (threadId > 0) {
-        const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-        if (binding) {
-          try {
-            const session = await client.getSession(binding.sessionId)
-            dirPath = session.directory
-          } catch {
-            dirPath = binding.cwd
-          }
-        }
+      const { sessionId } = resolveSessionFromCtx(ctx)
+      if (sessionId) {
+        try {
+          const session = await client.getSession(sessionId)
+          dirPath = session.directory
+        } catch {}
       }
     }
 
@@ -890,16 +861,24 @@ export function registerCommands(
 
     log.info('User command', { command: '/model', args, userId: ctx.from?.id })
 
-    if (!args) {
-      const threadId = ctx.message?.message_thread_id ?? 0
-      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-      const currentModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+    if (!sessionId) {
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
+      return
+    }
 
+    if (!args) {
       let message = ''
-      if (currentModel) {
-        message += `<b>Current Model:</b>\n<code>${escapeHtml(currentModel.providerId)}/${escapeHtml(currentModel.modelId)}</code>\n\n`
-      } else {
-        message += '<b>No model selected.</b> Using default.\n\n'
+      try {
+        const session = await client.getSession(sessionId)
+        const sessionModel = session.model
+        if (sessionModel) {
+          message += `<b>Current Model:</b>\n<code>${escapeHtml(sessionModel.id)}</code>\n\n`
+        } else {
+          message += '<b>No model set for this session.</b> Using default.\n\n'
+        }
+      } catch {
+        message += '<b>Could not fetch session model.</b>\n\n'
       }
 
       message += '<b>Usage:</b>\n'
@@ -928,23 +907,15 @@ export function registerCommands(
     const providerId = parts[0]
     const modelId = parts.slice(1).join(' ')
 
-    const threadId = ctx.message?.message_thread_id ?? 0
-    if (threadId > 0) {
-      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-      if (binding) {
-        stateManager.setTopicModel(ctx.chat.id, threadId, providerId, modelId)
-      } else {
-        await ctx.reply('No session bound to this topic. Use /newtopic first.')
-        return
-      }
-    } else {
-      stateManager.setCurrentModel(ctx.chat.id, providerId, modelId)
+    try {
+      await client.setSessionModel(sessionId, providerId, modelId)
+      await ctx.reply(
+        `✅ <b>Model set:</b>\n<code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>`,
+        { parse_mode: 'HTML' }
+      )
+    } catch (error) {
+      await ctx.reply(`Failed to set model: ${(error as Error).message}`)
     }
-
-    await ctx.reply(
-      `✅ <b>Model selected:</b>\n<code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>`,
-      { parse_mode: 'HTML' }
-    )
   })
 
   // Modes command
@@ -1010,16 +981,24 @@ export function registerCommands(
 
     log.info('User command', { command: '/mode', args, userId: ctx.from?.id })
 
-    if (!args) {
-      const threadId = ctx.message?.message_thread_id ?? 0
-      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-      const currentMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+    if (!sessionId) {
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
+      return
+    }
 
+    if (!args) {
       let message = ''
-      if (currentMode) {
-        message += `<b>Current Mode:</b> <code>${escapeHtml(currentMode)}</code>\n\n`
-      } else {
-        message += '<b>No mode selected.</b> Using default.\n\n'
+      try {
+        const session = await client.getSession(sessionId)
+        const agent = session.agent
+        if (agent) {
+          message += `<b>Current Mode:</b> <code>${escapeHtml(agent)}</code>\n\n`
+        } else {
+          message += '<b>No mode set for this session.</b> Using default.\n\n'
+        }
+      } catch {
+        message += '<b>Could not fetch session mode.</b>\n\n'
       }
 
       message += '<b>Usage:</b> <code>/mode <name></code>\n\n'
@@ -1042,23 +1021,15 @@ export function registerCommands(
       return
     }
 
-    const threadId = ctx.message?.message_thread_id ?? 0
-    if (threadId > 0) {
-      const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-      if (binding) {
-        stateManager.setTopicMode(ctx.chat.id, threadId, args)
-      } else {
-        await ctx.reply('No session bound to this topic. Use /newtopic first.')
-        return
-      }
-    } else {
-      stateManager.setCurrentMode(ctx.chat.id, args)
+    try {
+      await client.setSessionAgent(sessionId, args)
+      await ctx.reply(
+        `✅ <b>Mode set:</b> <code>${escapeHtml(args)}</code>`,
+        { parse_mode: 'HTML' }
+      )
+    } catch (error) {
+      await ctx.reply(`Failed to set mode: ${(error as Error).message}`)
     }
-
-    await ctx.reply(
-      `✅ <b>Mode selected:</b> <code>${escapeHtml(args)}</code>`,
-      { parse_mode: 'HTML' }
-    )
   })
 
   // Working command
@@ -1151,13 +1122,13 @@ export function registerCommands(
       }
 
       try {
-        const oldBinding = stateManager.getTopicSession(ctx.chat.id, threadId)
-        if (oldBinding && eventProcessor) {
-          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat.id, '↪️ New session created')
+        const oldSession = stateManager.getTopicSession(ctx.chat.id, threadId)
+        if (oldSession && eventProcessor) {
+          await eventProcessor.forceSessionIdle(oldSession, ctx.chat.id, '↪️ New session created')
         }
 
         const session = await client.createSession(absPath)
-        stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || absPath })
+        stateManager.setTopicSession(ctx.chat.id, threadId, session.id)
 
         await ctx.reply(
           `✅ <b>Session created for this topic</b>\n` +

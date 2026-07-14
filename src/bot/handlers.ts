@@ -15,8 +15,8 @@ import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
   if (threadId > 0) {
-    const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-    return { sessionId: binding?.sessionId, threadId }
+    const sessionId = stateManager.getTopicSession(ctx.chat.id, threadId)
+    return { sessionId, threadId }
   }
   return { sessionId: stateManager.getCurrentSession(ctx.chat.id), threadId: 0 }
 }
@@ -100,11 +100,6 @@ export function registerHandlers(
       return
     }
 
-    // Get selected model and mode — topic-specific takes priority
-    const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-    const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
-    const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
-
     // Increment prompt counter
     const count = stateManager.incrementPromptCount(ctx.chat.id)
     if (count > 0 && count % 10 === 0) {
@@ -123,11 +118,7 @@ export function registerHandlers(
     eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
 
     try {
-      // Send async message to OpenCode with model and mode selection
       await client.sendAsyncMessage(sessionId, text, {
-        providerId: selectedModel?.providerId,
-        modelId: selectedModel?.modelId,
-        agent: selectedMode,
         tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
       })
 
@@ -150,9 +141,6 @@ export function registerHandlers(
           const newWorkingMsg = await ctx.reply('⏳ Processing next queued message...', replyOpts)
           eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, newWorkingMsg.message_id, threadId)
           await client.sendAsyncMessage(sessionId, next.text, {
-            providerId: selectedModel?.providerId,
-            modelId: selectedModel?.modelId,
-            agent: selectedMode,
             tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
           })
           next.resolve()
@@ -207,9 +195,6 @@ export function registerHandlers(
       const part = buildImagePart(mime, buffer.toString('base64'), file.file_path?.split('/').pop() || 'photo.jpg')
 
       const caption = ctx.message.caption || ''
-      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-      const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
-      const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
 
       stateManager.incrementPromptCount(ctx.chat.id)
       messageQueue.setBusy(ctx.chat.id, threadId)
@@ -217,9 +202,6 @@ export function registerHandlers(
       eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
 
       await client.sendAsyncMessage(sessionId, caption, {
-        providerId: selectedModel?.providerId,
-        modelId: selectedModel?.modelId,
-        agent: selectedMode,
         files: [part],
         tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
       })
@@ -291,10 +273,6 @@ export function registerHandlers(
         return
       }
 
-      const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
-      const selectedModel = binding?.model || stateManager.getCurrentModel(ctx.chat.id)
-      const selectedMode = binding?.mode || stateManager.getCurrentMode(ctx.chat.id)
-
       stateManager.incrementPromptCount(ctx.chat.id)
       messageQueue.setBusy(ctx.chat.id, threadId)
 
@@ -305,9 +283,6 @@ export function registerHandlers(
 
       try {
         await client.sendAsyncMessage(sessionId, transcript, {
-          providerId: selectedModel?.providerId,
-          modelId: selectedModel?.modelId,
-          agent: selectedMode,
           tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
         })
         log.info('Sent voice transcript to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
@@ -328,9 +303,6 @@ export function registerHandlers(
             const newWorkingMsg = await ctx.reply('⏳ Processing next queued message...', replyOpts)
             eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, newWorkingMsg.message_id, threadId)
             await client.sendAsyncMessage(sessionId, next.text, {
-              providerId: selectedModel?.providerId,
-              modelId: selectedModel?.modelId,
-              agent: selectedMode,
               tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
             })
             next.resolve()
@@ -411,12 +383,10 @@ export function registerHandlers(
 
       if (threadId > 0) {
         const oldBinding = stateManager.getTopicSession(ctx.chat!.id, threadId)
-        if (oldBinding && oldBinding.sessionId !== sessionId) {
-          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat!.id, '↪️ Session switched')
+        if (oldBinding && oldBinding !== sessionId) {
+          await eventProcessor.forceSessionIdle(oldBinding, ctx.chat!.id, '↪️ Session switched')
         }
-        const session = await client.getSession(sessionId).catch(() => null)
-        const cwd = session?.directory || ''
-        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId, cwd })
+        stateManager.setTopicSession(ctx.chat!.id, threadId, sessionId)
       } else {
         const oldSessionId = stateManager.getCurrentSession(ctx.chat!.id)
         if (oldSessionId && oldSessionId !== sessionId) {
@@ -443,11 +413,11 @@ export function registerHandlers(
       try {
         const oldBinding = stateManager.getTopicSession(ctx.chat!.id, threadId)
         if (oldBinding) {
-          await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat!.id, '↪️ New session created')
+          await eventProcessor.forceSessionIdle(oldBinding, ctx.chat!.id, '↪️ New session created')
         }
 
         const session = await client.createSession(directory)
-        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId: session.id, cwd: session.directory || directory })
+        stateManager.setTopicSession(ctx.chat!.id, threadId, session.id)
 
         await ctx.answerCallbackQuery('Session created')
         await ctx.editMessageText(
@@ -497,10 +467,10 @@ export function registerHandlers(
         try {
           const oldBinding = stateManager.getTopicSession(chatId, threadId)
           if (oldBinding) {
-            await eventProcessor.forceSessionIdle(oldBinding.sessionId, chatId, '↪️ New session created')
+            await eventProcessor.forceSessionIdle(oldBinding, chatId, '↪️ New session created')
           }
           const session = await client.createSession(state.path)
-          stateManager.setTopicSession(chatId, threadId, { sessionId: session.id, cwd: session.directory || state.path })
+          stateManager.setTopicSession(chatId, threadId, session.id)
           clearBrowseState(chatId, threadId)
           await ctx.answerCallbackQuery('Session created')
           await ctx.editMessageText(

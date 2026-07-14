@@ -14,20 +14,6 @@ export interface ChatState {
   mode?: string
 }
 
-export interface TopicBinding {
-  sessionId: string
-  cwd: string
-  model?: SelectedModel
-  mode?: string
-}
-
-const TopicBindingSchema = z.object({
-  sessionId: z.string(),
-  cwd: z.string(),
-  model: z.object({ providerId: z.string(), modelId: z.string() }).optional(),
-  mode: z.string().optional(),
-})
-
 const SavedStateSchema = z.object({
   sessions: z.array(z.tuple([z.number(), z.string()])),
   models: z.array(z.tuple([z.number(), z.object({ providerId: z.string(), modelId: z.string() })])),
@@ -47,7 +33,12 @@ const SavedStateSchema = z.object({
     chatId: z.number(),
     text: z.string(),
   })).optional(),
-  topicBindings: z.record(z.string(), TopicBindingSchema).optional(),
+  topicBindings: z.record(z.string(), z.union([z.string(), z.object({
+    sessionId: z.string(),
+    cwd: z.string().optional(),
+    model: z.object({ providerId: z.string(), modelId: z.string() }).optional(),
+    mode: z.string().optional(),
+  })])).optional(),
   subagentFlags: z.record(z.string(), z.boolean()).optional(),
 }).strip()
 
@@ -75,7 +66,7 @@ export class StateManager {
     costTracking: Map<string, CostEntry>
     promptCounters: Map<number, number>
     queuedMessages: QueuedMessage[]
-    topicBindings: Map<string, TopicBinding>
+    topicBindings: Map<string, string>
     sessionToTopic: Map<string, { chatId: number; threadId: number }>
     subagentFlags: Map<string, boolean>
   }
@@ -101,17 +92,18 @@ export class StateManager {
     try {
       const data = await readFile(this.stateFile, 'utf-8')
       const parsed = SavedStateSchema.parse(JSON.parse(data))
-      const topicBindings = new Map<string, TopicBinding>(
-        Object.entries(parsed.topicBindings || {})
-      )
+
+      const topicBindings = new Map<string, string>()
       const sessionToTopic = new Map<string, { chatId: number; threadId: number }>()
-      for (const [key, binding] of topicBindings) {
+      for (const [key, value] of Object.entries(parsed.topicBindings || {})) {
         const [chatIdStr, threadIdStr] = key.split(':')
-        sessionToTopic.set(binding.sessionId, {
-          chatId: parseInt(chatIdStr, 10),
-          threadId: parseInt(threadIdStr, 10),
-        })
+        const chatId = parseInt(chatIdStr, 10)
+        const threadId = parseInt(threadIdStr, 10)
+        const sessionId = typeof value === 'string' ? value : value.sessionId
+        topicBindings.set(key, sessionId)
+        sessionToTopic.set(sessionId, { chatId, threadId })
       }
+
       this.state = {
         sessions: new Map(parsed.sessions || []),
         models: new Map(parsed.models || []),
@@ -194,10 +186,6 @@ export class StateManager {
     return undefined
   }
 
-  // Resolve which Telegram chat + forum thread a session's messages belong to.
-  // Topic-bound sessions first (forum topics, with their threadId), then legacy
-  // per-chat sessions (threadId 0). Single source of truth for routing agent
-  // output, permission prompts, and questions back to the right place.
   resolveChat(sessionId: string): { chatId: number; threadId: number } | undefined {
     const topic = this.getTopicBySession(sessionId)
     if (topic) return topic
@@ -322,19 +310,18 @@ export class StateManager {
     this.save()
   }
 
-  // Topic-aware session management (F2: forum topics / multi-sesi)
   private topicKey(chatId: number, threadId: number): string {
     return `${chatId}:${threadId}`
   }
 
-  setTopicSession(chatId: number, threadId: number, binding: TopicBinding): void {
+  setTopicSession(chatId: number, threadId: number, sessionId: string): void {
     const key = this.topicKey(chatId, threadId)
-    this.state.topicBindings.set(key, binding)
-    this.state.sessionToTopic.set(binding.sessionId, { chatId, threadId })
+    this.state.topicBindings.set(key, sessionId)
+    this.state.sessionToTopic.set(sessionId, { chatId, threadId })
     this.save()
   }
 
-  getTopicSession(chatId: number, threadId: number): TopicBinding | undefined {
+  getTopicSession(chatId: number, threadId: number): string | undefined {
     return this.state.topicBindings.get(this.topicKey(chatId, threadId))
   }
 
@@ -342,13 +329,13 @@ export class StateManager {
     return this.state.sessionToTopic.get(sessionId)
   }
 
-  getAllTopics(chatId: number): Array<{ threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> {
+  getAllTopics(chatId: number): Array<{ threadId: number; sessionId: string }> {
     const prefix = `${chatId}:`
-    const results: Array<{ threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> = []
-    for (const [key, binding] of this.state.topicBindings) {
+    const results: Array<{ threadId: number; sessionId: string }> = []
+    for (const [key, sessionId] of this.state.topicBindings) {
       if (key.startsWith(prefix)) {
         const threadId = parseInt(key.slice(prefix.length), 10)
-        results.push({ threadId, ...binding })
+        results.push({ threadId, sessionId })
       }
     }
     return results
@@ -356,40 +343,22 @@ export class StateManager {
 
   clearTopicSession(chatId: number, threadId: number): void {
     const key = this.topicKey(chatId, threadId)
-    const binding = this.state.topicBindings.get(key)
-    if (binding) {
-      this.state.sessionToTopic.delete(binding.sessionId)
+    const sessionId = this.state.topicBindings.get(key)
+    if (sessionId) {
+      this.state.sessionToTopic.delete(sessionId)
     }
     this.state.topicBindings.delete(key)
     this.save()
   }
 
-  setTopicModel(chatId: number, threadId: number, providerId: string, modelId: string): void {
-    const key = this.topicKey(chatId, threadId)
-    const binding = this.state.topicBindings.get(key)
-    if (binding) {
-      binding.model = { providerId, modelId }
-      this.save()
-    }
-  }
-
-  setTopicMode(chatId: number, threadId: number, mode: string): void {
-    const key = this.topicKey(chatId, threadId)
-    const binding = this.state.topicBindings.get(key)
-    if (binding) {
-      binding.mode = mode
-      this.save()
-    }
-  }
-
-  getAllTopicBindings(): Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> {
-    const results: Array<{ chatId: number; threadId: number; sessionId: string; cwd: string; model?: SelectedModel; mode?: string }> = []
-    for (const [key, binding] of this.state.topicBindings) {
+  getAllTopicBindings(): Array<{ chatId: number; threadId: number; sessionId: string }> {
+    const results: Array<{ chatId: number; threadId: number; sessionId: string }> = []
+    for (const [key, sessionId] of this.state.topicBindings) {
       const [chatIdStr, threadIdStr] = key.split(':')
       results.push({
         chatId: parseInt(chatIdStr, 10),
         threadId: parseInt(threadIdStr, 10),
-        ...binding,
+        sessionId,
       })
     }
     return results

@@ -204,6 +204,20 @@ export class OpenCodeClient {
     await this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/compact`, { method: 'POST' })
   }
 
+  async setSessionAgent(sessionId: string, agent: string): Promise<void> {
+    await this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/agent`, {
+      method: 'POST',
+      body: JSON.stringify({ agent }),
+    })
+  }
+
+  async setSessionModel(sessionId: string, providerID: string, modelId: string): Promise<void> {
+    await this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/model`, {
+      method: 'POST',
+      body: JSON.stringify({ model: { providerID, id: modelId } }),
+    })
+  }
+
   async getConfig(): Promise<{ model?: string; agent?: Record<string, { model?: string; mode?: string }> }> {
     return this.request('/config')
   }
