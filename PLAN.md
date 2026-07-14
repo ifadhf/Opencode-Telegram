@@ -129,3 +129,7 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | **Fase 7 selesai**: F7.1 kirim foto ke agent (`8cc460d`), F7.3 navigable directory browser (`cfbd5b2`), F7.2 relay gambar dari agent (`c08aa51`). **TDD 15/15 PASS.** |
 | 2026-07-14 | **Fase 8 (bugfix) selesai**: `/providers` no longer 400s on long provider lists (`4b698a5`). TDD PASS. |
 | 2026-07-14 | `feat/ccbot-parity-f5-f7` di-merge ke `main` (`1e5faae`). Build + deploy ke `/opt`, service di-restart 12:15. Semua fase F0–F8 selesai (kode). **Human test F3 & F5–F7 menunggu.** |
+| 2026-07-14 | **Bugfix F9**: `/newtopic` directory browser selalu "(no subfolders)" — `/file` API butuh `directory` + `path` (`a6979d3`). |
+| 2026-07-14 | **F7.3 enhancement**: "New folder" button di directory browser (`0049287`). |
+| 2026-07-14 | **F10**: `/subagent on|off` toggle — default OFF, cegah subagent stuck via `tools: { task: false }` di `prompt_async` (`aef07c4`). |
+| 2026-07-14 | **F11**: `/status` kini menampilkan permission overrides + timestamps created/updated (`e9d5ba5`). |
