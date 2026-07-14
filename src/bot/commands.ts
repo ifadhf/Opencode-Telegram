@@ -354,6 +354,40 @@ export function registerCommands(
     await ctx.reply(message, { parse_mode: 'Markdown' })
   })
 
+  // Subagent toggle
+  bot.command('subagent', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+
+    const threadId = ctx.message?.message_thread_id ?? 0
+
+    if (threadId === 0) {
+      await ctx.reply('This command only works in a forum topic. Create a topic with /newtopic first.')
+      return
+    }
+
+    const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+    if (!binding) {
+      await ctx.reply('No session bound to this topic. Use /newtopic to create one.')
+      return
+    }
+
+    const arg = ctx.message?.text?.split(/\s+/)[1]?.toLowerCase()
+    if (arg === 'on') {
+      stateManager.setAllowSubagent(ctx.chat.id, threadId, true)
+      await ctx.reply('✅ Subagent: *ON* — agent can dispatch subagents (explore/general)', { parse_mode: 'Markdown' })
+    } else if (arg === 'off') {
+      stateManager.setAllowSubagent(ctx.chat.id, threadId, false)
+      await ctx.reply('✅ Subagent: *OFF* — agent will not dispatch subagents', { parse_mode: 'Markdown' })
+    } else {
+      const allowed = stateManager.getAllowSubagent(ctx.chat.id, threadId)
+      const status = allowed ? 'ON' : 'OFF'
+      await ctx.reply(`Subagent: *${status}*\n\nUse \`/subagent on\` or \`/subagent off\` to toggle.`, { parse_mode: 'Markdown' })
+    }
+  })
+
   // Cost command
   bot.command('cost', async (ctx) => {
     if (!isAuthorized(ctx.from?.id.toString())) {

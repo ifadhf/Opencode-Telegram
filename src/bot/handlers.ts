@@ -128,6 +128,7 @@ export function registerHandlers(
         providerId: selectedModel?.providerId,
         modelId: selectedModel?.modelId,
         agent: selectedMode,
+        tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
       })
 
       log.info('Sent to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
@@ -152,6 +153,7 @@ export function registerHandlers(
             providerId: selectedModel?.providerId,
             modelId: selectedModel?.modelId,
             agent: selectedMode,
+            tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
           })
           next.resolve()
         } catch {
@@ -219,6 +221,7 @@ export function registerHandlers(
         modelId: selectedModel?.modelId,
         agent: selectedMode,
         files: [part],
+        tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
       })
       log.info('Sent image to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
     } catch (error) {
@@ -305,6 +308,7 @@ export function registerHandlers(
           providerId: selectedModel?.providerId,
           modelId: selectedModel?.modelId,
           agent: selectedMode,
+          tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
         })
         log.info('Sent voice transcript to OpenCode', { sessionId, chatId: ctx.chat.id, threadId })
       } catch (error) {
@@ -327,6 +331,7 @@ export function registerHandlers(
               providerId: selectedModel?.providerId,
               modelId: selectedModel?.modelId,
               agent: selectedMode,
+              tools: stateManager.getAllowSubagent(ctx.chat.id, threadId) ? undefined : { task: false },
             })
             next.resolve()
           } catch {

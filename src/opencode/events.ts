@@ -420,6 +420,7 @@ export class EventProcessor {
           providerId: selectedModel?.providerId,
           modelId: selectedModel?.modelId,
           agent: selectedMode,
+          tools: this.stateManager.getAllowSubagent(chatId, threadId) ? undefined : { task: false },
         })
         next.resolve()
       } catch (error) {

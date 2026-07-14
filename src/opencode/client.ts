@@ -214,11 +214,12 @@ export class OpenCodeClient {
     })
   }
 
-  async sendAsyncMessage(sessionId: string, content: string, options?: {
+   async sendAsyncMessage(sessionId: string, content: string, options?: {
     providerId?: string
     modelId?: string
     agent?: string
     files?: FilePartInput[]
+    tools?: Record<string, boolean>
   }): Promise<void> {
     const parts: any[] = []
     if (content && content.trim()) parts.push({ type: 'text', text: content })
@@ -231,6 +232,9 @@ export class OpenCodeClient {
     }
     if (options?.agent) {
       body.agent = options.agent
+    }
+    if (options?.tools) {
+      body.tools = options.tools
     }
     await this.request<void>(`/session/${encodeURIComponent(sessionId)}/prompt_async`, {
       method: 'POST',

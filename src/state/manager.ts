@@ -48,6 +48,7 @@ const SavedStateSchema = z.object({
     text: z.string(),
   })).optional(),
   topicBindings: z.record(z.string(), TopicBindingSchema).optional(),
+  subagentFlags: z.record(z.string(), z.boolean()).optional(),
 }).strip()
 
 export interface CostEntry {
@@ -76,6 +77,7 @@ export class StateManager {
     queuedMessages: QueuedMessage[]
     topicBindings: Map<string, TopicBinding>
     sessionToTopic: Map<string, { chatId: number; threadId: number }>
+    subagentFlags: Map<string, boolean>
   }
   private stateFile: string
   private saveQueue: Promise<void> = Promise.resolve()
@@ -91,6 +93,7 @@ export class StateManager {
       queuedMessages: [],
       topicBindings: new Map(),
       sessionToTopic: new Map(),
+      subagentFlags: new Map(),
     }
   }
 
@@ -125,6 +128,7 @@ export class StateManager {
         queuedMessages: parsed.queuedMessages || [],
         topicBindings,
         sessionToTopic,
+        subagentFlags: new Map(Object.entries(parsed.subagentFlags || {})),
       }
       getLogger().info('State loaded', {
         sessions: this.state.sessions.size,
@@ -157,6 +161,7 @@ export class StateManager {
           promptCounters: Object.fromEntries(this.state.promptCounters),
           queuedMessages: this.state.queuedMessages,
           topicBindings: Object.fromEntries(this.state.topicBindings),
+          subagentFlags: Object.fromEntries(this.state.subagentFlags),
         }
         const tmpFile = this.stateFile + '.' + Date.now() + '.' + Math.random().toString(36).slice(2, 8) + '.tmp'
         await writeFile(tmpFile, JSON.stringify(data, null, 2))
@@ -388,6 +393,15 @@ export class StateManager {
       })
     }
     return results
+  }
+
+  getAllowSubagent(chatId: number, threadId: number): boolean {
+    return this.state.subagentFlags.get(this.topicKey(chatId, threadId)) ?? false
+  }
+
+  setAllowSubagent(chatId: number, threadId: number, allow: boolean): void {
+    this.state.subagentFlags.set(this.topicKey(chatId, threadId), allow)
+    this.save()
   }
 
   flushSave(): Promise<void> {
