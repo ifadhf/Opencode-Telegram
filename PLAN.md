@@ -135,3 +135,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | **F11**: `/status` kini menampilkan permission overrides + timestamps created/updated (`e9d5ba5`). |
 | 2026-07-14 | **F12**: `/move <dir> [--changes]`, `/compact`, `/delete <id>`, session state di `/status`, fix escaping `\-` `\_` (`5346cb4`). |
 | 2026-07-14 | **F13**: Migrasi massal `parse_mode: 'HTML'` — semua 69 Markdown diganti HTML, escapeMarkdown→escapeHtml (`d681713`). `\` sebelum `_` dan `-` hilang selamanya. Strategi ccbot: HTML mode + hanya escape `&`, `<`, `>`. |
+| 2026-07-14 | **F14**: Simplifikasi topic binding — topic → sessionId only. cwd, model, mode dari OpenCode API. `/model` + `/mode` persist ke OpenCode via `POST /api/session/{id}/model|agent`. (`92cdc48`). |
