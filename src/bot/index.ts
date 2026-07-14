@@ -72,6 +72,10 @@ export class TelegramBot {
       { command: 'cost', description: 'Show cost tracking' },
       { command: 'todo', description: 'Show task list' },
       { command: 'diff', description: 'Show file changes' },
+      { command: 'move', description: 'Move session to another directory' },
+      { command: 'compact', description: 'Compact session context' },
+      { command: 'delete', description: 'Delete a session by ID' },
+      { command: 'subagent', description: 'Toggle subagent dispatch (on/off)' },
     ]).then(() => {
       log.info('Command menu registered')
     }).catch(error => {

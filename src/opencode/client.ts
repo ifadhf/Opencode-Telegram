@@ -193,6 +193,17 @@ export class OpenCodeClient {
     await this.request<void>(`/session/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
   }
 
+  async moveSession(sessionId: string, directory: string, moveChanges = false): Promise<void> {
+    await this.request<void>('/experimental/control-plane/move-session', {
+      method: 'POST',
+      body: JSON.stringify({ sessionID: sessionId, destination: { directory }, moveChanges }),
+    })
+  }
+
+  async compactSession(sessionId: string): Promise<void> {
+    await this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/compact`, { method: 'POST' })
+  }
+
   async sendMessage(sessionId: string, content: string, options?: {
     providerId?: string
     modelId?: string

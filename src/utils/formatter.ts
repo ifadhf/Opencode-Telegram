@@ -26,7 +26,7 @@ export function getFileIcon(filename: string): string {
 }
 
 export function escapeMarkdown(text: string): string {
-  return text.replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1')
+  return text.replace(/([*[\]()~`>#+=|{}.!])/g, '\\$1')
 }
 
 export function formatPermissionRequest(permission: PermissionRequest): string {

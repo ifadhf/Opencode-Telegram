@@ -295,6 +295,18 @@ export function registerCommands(
       message += `*Session:*\n`
       message += `ID: \`${escapeMarkdown(session.id)}\`\n`
       message += `Title: ${escapeMarkdown(sessionTitle)}\n`
+
+      try {
+        const status = await client.getSessionStatus(sessionId)
+        const stateIcons: Record<string, string> = { idle: '💤', busy: '🔄', retry: '🔁' }
+        const stateLabels: Record<string, string> = { idle: 'Idle', busy: 'Running', retry: 'Retrying' }
+        const icon = stateIcons[status.status] || '❓'
+        const label = stateLabels[status.status] || status.status
+        message += `State: ${icon} ${label}\n`
+      } catch {
+        // status endpoint might not be available
+      }
+
       message += `Directory: \`${escapeMarkdown(session.directory)}\`\n`
 
       if ((session as any).summary) {
@@ -406,6 +418,96 @@ export function registerCommands(
       const allowed = stateManager.getAllowSubagent(ctx.chat.id, threadId)
       const status = allowed ? 'ON' : 'OFF'
       await ctx.reply(`Subagent: *${status}*\n\nUse \`/subagent on\` or \`/subagent off\` to toggle.`, { parse_mode: 'Markdown' })
+    }
+  })
+
+  // Move session to a different directory
+  bot.command('move', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+    log.info('User command', { command: '/move', userId: ctx.from?.id })
+
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+    if (!sessionId) {
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
+      return
+    }
+
+    const args = ctx.message?.text?.split(/\s+/) || []
+    if (args.length < 2) {
+      await ctx.reply('Usage: `/move <directory> [--changes]`\n\nMove session to another directory. Use `--changes` to transfer uncommitted changes.', { parse_mode: 'Markdown' })
+      return
+    }
+
+    const directory = args[1]
+    const moveChanges = args.includes('--changes')
+
+    try {
+      await client.moveSession(sessionId, directory, moveChanges)
+      const msg = moveChanges
+        ? `✅ Session moved to \`${escapeMarkdown(directory)}\` (with uncommitted changes)`
+        : `✅ Session moved to \`${escapeMarkdown(directory)}\``
+      await ctx.reply(msg, { parse_mode: 'Markdown' })
+    } catch (error) {
+      await ctx.reply(`❌ Failed to move session: ${(error as Error).message}`)
+    }
+  })
+
+  // Compact session context
+  bot.command('compact', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+    log.info('User command', { command: '/compact', userId: ctx.from?.id })
+
+    const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+    if (!sessionId) {
+      await ctx.reply(threadId > 0 ? 'No session bound to this topic.' : 'No session selected.')
+      return
+    }
+
+    try {
+      await client.compactSession(sessionId)
+      await ctx.reply('✅ Session compacted — context window reclaimed.')
+    } catch (error) {
+      await ctx.reply(`❌ Failed to compact session: ${(error as Error).message}`)
+    }
+  })
+
+  // Delete a session
+  bot.command('delete', async (ctx) => {
+    if (!isAuthorized(ctx.from?.id.toString())) {
+      await ctx.reply('You are not authorized to use this bot.')
+      return
+    }
+    log.info('User command', { command: '/delete', userId: ctx.from?.id })
+
+    const args = ctx.message?.text?.split(/\s+/) || []
+    const targetId = args[1]
+
+    if (!targetId) {
+      const { sessionId, threadId } = resolveSessionFromCtx(ctx)
+      if (!sessionId) {
+        await ctx.reply(threadId > 0 ? 'No session bound to this topic. Use `/delete <session_id>`.' : 'No session selected. Use `/delete <session_id>`.', { parse_mode: 'Markdown' })
+        return
+      }
+      await ctx.reply(`Current session: \`${escapeMarkdown(sessionId)}\`\n\nTo delete, use: \`/delete ${escapeMarkdown(sessionId)}\``, { parse_mode: 'Markdown' })
+      return
+    }
+
+    if (!targetId.startsWith('ses_')) {
+      await ctx.reply('Invalid session ID. Must start with `ses_`.', { parse_mode: 'Markdown' })
+      return
+    }
+
+    try {
+      await client.deleteSession(targetId)
+      await ctx.reply(`🗑️ Session deleted: \`${escapeMarkdown(targetId)}\``, { parse_mode: 'Markdown' })
+    } catch (error) {
+      await ctx.reply(`❌ Failed to delete session: ${(error as Error).message}`)
     }
   })
 
