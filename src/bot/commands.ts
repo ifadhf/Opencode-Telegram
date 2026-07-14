@@ -263,7 +263,6 @@ export function registerCommands(
     const threadId = ctx.message?.message_thread_id ?? 0
 
     let sessionId: string | undefined
-    let cwd = ''
 
     if (threadId > 0) {
       const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
@@ -272,7 +271,6 @@ export function registerCommands(
         return
       }
       sessionId = binding.sessionId
-      cwd = binding.cwd
     } else {
       const chatState = stateManager.getChatState(ctx.chat.id)
       sessionId = chatState.sessionId
@@ -464,6 +462,12 @@ export function registerCommands(
 
     try {
       await client.moveSession(sessionId, directory, moveChanges)
+      if (threadId > 0) {
+        const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
+        if (binding) {
+          stateManager.setTopicSession(ctx.chat.id, threadId, { ...binding, cwd: directory })
+        }
+      }
       const msg = moveChanges
         ? `✅ Session moved to \`${escapeMarkdown(directory)}\` (with uncommitted changes)`
         : `✅ Session moved to \`${escapeMarkdown(directory)}\``
@@ -650,7 +654,14 @@ export function registerCommands(
       const threadId = ctx.message?.message_thread_id ?? 0
       if (threadId > 0) {
         const binding = stateManager.getTopicSession(ctx.chat.id, threadId)
-        dirPath = binding?.cwd
+        if (binding) {
+          try {
+            const session = await client.getSession(binding.sessionId)
+            dirPath = session.directory
+          } catch {
+            dirPath = binding.cwd
+          }
+        }
       }
     }
 
