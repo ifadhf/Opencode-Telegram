@@ -4,7 +4,7 @@ import { OpenCodeClient, Model, Provider } from '../opencode/client.js'
 import { EventProcessor } from '../opencode/events.js'
 import { escapeHtml, splitMessage } from '../utils/formatter.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE_SIZE } from './history.js'
-import { buildDirBrowser, listSubdirs, setBrowseState } from './dirBrowser.js'
+import { buildDirBrowser, listSubdirs, setBrowseState, getWorktreeRoot } from './dirBrowser.js'
 import { getLogger } from '../utils/logger.js'
 
 // Build the "Available Providers" message. Pure + exported so it can be unit
@@ -473,7 +473,16 @@ export function registerCommands(
         : `✅ Session moved to <code>${escapeHtml(directory)}</code>`
       await ctx.reply(msg, { parse_mode: 'HTML' })
     } catch (error) {
-      await ctx.reply(`❌ Failed to move session: ${(error as Error).message}`)
+      const msg = (error as Error).message
+      if (msg.includes('MoveSessionError') || msg.includes('another project')) {
+        await ctx.reply(
+          '❌ Cannot move session — the destination directory is in a different OpenCode project.\n' +
+          'Use <code>/newtopic</code> or <code>/session</code> to create a new session in the target directory.',
+          { parse_mode: 'HTML' }
+        )
+      } else {
+        await ctx.reply(`❌ Failed to move session: ${msg}`)
+      }
     }
   })
 
@@ -1134,19 +1143,26 @@ export function registerCommands(
     const args = (ctx.match as string || '').trim()
 
     if (args) {
+      const worktree = getWorktreeRoot()
+      const absPath = args.startsWith('/') ? args : `${process.env.HOME || '/home/fadh'}/${args}`
+      if (!absPath.startsWith(worktree)) {
+        await ctx.reply(`❌ Directory must be within workspace: \`${escapeHtml(worktree)}\``, { parse_mode: 'HTML' })
+        return
+      }
+
       try {
         const oldBinding = stateManager.getTopicSession(ctx.chat.id, threadId)
         if (oldBinding && eventProcessor) {
           await eventProcessor.forceSessionIdle(oldBinding.sessionId, ctx.chat.id, '↪️ New session created')
         }
 
-        const session = await client.createSession(args)
-        stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: args })
+        const session = await client.createSession(absPath)
+        stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: session.directory || absPath })
 
         await ctx.reply(
           `✅ <b>Session created for this topic</b>\n` +
           `ID: <code>${escapeHtml(session.id)}</code>\n` +
-          `Directory: <code>${escapeHtml(args)}</code>\n\n` +
+          `Directory: <code>${escapeHtml(session.directory)}</code>\n\n` +
           `Send any message to start!`,
           { parse_mode: 'HTML' }
         )
@@ -1157,10 +1173,7 @@ export function registerCommands(
     }
 
     try {
-      // Start a navigable browser at ~/workspace; the user can descend, go up
-      // (..), paginate, and Select this folder. State is kept server-side.
-      const homeDir = process.env.HOME || '/home/fadh'
-      const startDir = `${homeDir}/workspace`
+      const startDir = getWorktreeRoot()
       const subdirs = await listSubdirs(client, startDir).catch(() => [])
       setBrowseState(ctx.chat.id, threadId, { path: startDir, subdirs, page: 0 })
 

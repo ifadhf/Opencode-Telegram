@@ -16,12 +16,24 @@ export interface DirBrowserView {
   inlineKeyboard: Array<Array<{ text: string; callback_data: string }>>
 }
 
-// Parent of an absolute path, clamped at root.
+// Module-level worktree root — set at startup from the -d flag.
+// Restricts directory browser navigation to within this tree.
+let worktreeRoot = '/'
+export function setWorktreeRoot(root: string): void {
+  worktreeRoot = root.replace(/\/+$/, '') || '/'
+}
+export function getWorktreeRoot(): string {
+  return worktreeRoot
+}
+
+// Parent of an absolute path, clamped at worktreeRoot.
 export function parentDir(p: string): string {
   const trimmed = p.replace(/\/+$/, '')
-  if (trimmed === '' ) return '/'
+  if (trimmed === worktreeRoot || trimmed.length <= worktreeRoot.length) return worktreeRoot
   const idx = trimmed.lastIndexOf('/')
-  return idx <= 0 ? '/' : trimmed.slice(0, idx)
+  const parent = idx <= 0 ? '/' : trimmed.slice(0, idx)
+  if (parent.length < worktreeRoot.length || !parent.startsWith(worktreeRoot)) return worktreeRoot
+  return parent
 }
 
 export function buildDirBrowser(currentPath: string, subdirs: DirEntry[], page: number): DirBrowserView {

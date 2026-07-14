@@ -5,6 +5,7 @@ import { resolve } from 'path'
 import { TelegramBot } from './bot/index.js'
 import { OpenCodeServer } from './opencode/server.js'
 import { HealthMonitor } from './opencode/health.js'
+import { setWorktreeRoot } from './bot/dirBrowser.js'
 import { loadConfig, validateConfig, hasCredentials, saveProjectConfig, removeProjectConfig, projectConfigExists } from './utils/config.js'
 import { initLogger, getLogger } from './utils/logger.js'
 
@@ -128,6 +129,7 @@ async function runSetup(projectDir: string): Promise<boolean> {
 
 async function main() {
   const projectDir = resolve(directory)
+  setWorktreeRoot(projectDir)
   const startServer = !values['no-server']
 
   // Handle --uninstall

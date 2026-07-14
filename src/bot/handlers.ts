@@ -447,13 +447,13 @@ export function registerHandlers(
         }
 
         const session = await client.createSession(directory)
-        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId: session.id, cwd: directory })
+        stateManager.setTopicSession(ctx.chat!.id, threadId, { sessionId: session.id, cwd: session.directory || directory })
 
         await ctx.answerCallbackQuery('Session created')
         await ctx.editMessageText(
           `✅ <b>New session created</b>\n` +
           `ID: <code>${session.id}</code>\n` +
-          `Directory: <code>${directory}</code>\n\n` +
+          `Directory: <code>${session.directory}</code>\n\n` +
           `Send any message to start!`,
           { parse_mode: 'HTML' }
         )
@@ -500,12 +500,12 @@ export function registerHandlers(
             await eventProcessor.forceSessionIdle(oldBinding.sessionId, chatId, '↪️ New session created')
           }
           const session = await client.createSession(state.path)
-          stateManager.setTopicSession(chatId, threadId, { sessionId: session.id, cwd: state.path })
+          stateManager.setTopicSession(chatId, threadId, { sessionId: session.id, cwd: session.directory || state.path })
           clearBrowseState(chatId, threadId)
           await ctx.answerCallbackQuery('Session created')
           await ctx.editMessageText(
             `✅ <b>New session created</b>\n` +
-            `Directory: <code>${state.path}</code>\n\n` +
+            `Directory: <code>${session.directory}</code>\n\n` +
             `Send any message to start!`,
             { parse_mode: 'HTML' }
           )
