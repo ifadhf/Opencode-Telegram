@@ -480,8 +480,7 @@ export function registerCommands(
     }
 
     try {
-      const result = await client.listFiles(dirPath)
-      const entries = result.entries || []
+      const entries = await client.listFiles(dirPath)
 
       if (entries.length === 0) {
         await ctx.reply('📂 Empty directory or not found.')
@@ -490,7 +489,7 @@ export function registerCommands(
 
       let message = `📂 *Directory:*\n\n`
       for (const entry of entries) {
-        const icon = entry.isDir ? '📁' : '📄'
+        const icon = entry.type === 'directory' ? '📁' : '📄'
         const name = entry.name || entry.path
         message += `${icon} \`${escapeMarkdown(name)}\`\n`
       }

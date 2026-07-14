@@ -58,14 +58,13 @@ export function buildDirBrowser(currentPath: string, subdirs: DirEntry[], page: 
 // List the immediate subdirectories of a path (dirs only, hidden excluded,
 // alphabetised). Loosely typed on the client so it stays unit-testable.
 export async function listSubdirs(
-  client: { listFiles: (p: string) => Promise<{ entries?: Array<{ name: string; path: string; isDir: boolean }> }> },
+  client: { listFiles: (p: string) => Promise<Array<{ name: string; path: string; absolute: string; type: string }>> },
   path: string
 ): Promise<DirEntry[]> {
-  const res = await client.listFiles(path)
-  const entries = res.entries || []
+  const entries = await client.listFiles(path)
   return entries
-    .filter(e => e.isDir && !e.name.startsWith('.'))
-    .map(e => ({ name: e.name, path: e.path || `${path.replace(/\/+$/, '')}/${e.name}`, isDir: true }))
+    .filter(e => e.type === 'directory' && !e.name.startsWith('.'))
+    .map(e => ({ name: e.name, path: e.absolute || e.path, isDir: true }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 

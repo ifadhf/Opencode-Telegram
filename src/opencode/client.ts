@@ -327,9 +327,10 @@ export class OpenCodeClient {
     })
   }
 
-  async listFiles(dirPath?: string): Promise<{ entries: Array<{ name: string; path: string; isDir: boolean; size?: number }> }> {
-    const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''
-    return this.request(`/file${params}`)
+  async listFiles(dirPath?: string): Promise<Array<{ name: string; path: string; absolute: string; type: string; ignored?: boolean }>> {
+    if (!dirPath) return this.request('/file')
+    const abs = dirPath.replace(/\/+$/, '') || '/'
+    return this.request(`/file?directory=${encodeURIComponent(abs)}&path=.`)
   }
 
   async getFileContent(filePath: string): Promise<{ content: string; path: string }> {

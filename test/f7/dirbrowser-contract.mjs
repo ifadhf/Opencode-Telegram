@@ -68,14 +68,12 @@ describe('F7.3 directory browser contract', { skip: !IMPL }, () => {
 
   test('listSubdirs: filters files + hidden, sorts, maps to {name,path,isDir}', async () => {
     const fakeClient = {
-      listFiles: async () => ({
-        entries: [
-          { name: 'zeta', path: '/r/zeta', isDir: true },
-          { name: '.git', path: '/r/.git', isDir: true },
-          { name: 'readme.md', path: '/r/readme.md', isDir: false },
-          { name: 'alpha', path: '/r/alpha', isDir: true },
-        ],
-      }),
+      listFiles: async () => [
+        { name: 'zeta', path: 'zeta/', absolute: '/r/zeta', type: 'directory' },
+        { name: '.git', path: '.git/', absolute: '/r/.git', type: 'directory' },
+        { name: 'readme.md', path: 'readme.md', absolute: '/r/readme.md', type: 'file' },
+        { name: 'alpha', path: 'alpha/', absolute: '/r/alpha', type: 'directory' },
+      ],
     }
     const subs = await mod.listSubdirs(fakeClient, '/r')
     assert.deepEqual(subs.map(s => s.name), ['alpha', 'zeta'])
