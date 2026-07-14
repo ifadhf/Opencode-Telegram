@@ -204,6 +204,10 @@ export class OpenCodeClient {
     await this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/compact`, { method: 'POST' })
   }
 
+  async getConfig(): Promise<{ model?: string; agent?: Record<string, { model?: string; mode?: string }> }> {
+    return this.request('/config')
+  }
+
   async sendMessage(sessionId: string, content: string, options?: {
     providerId?: string
     modelId?: string

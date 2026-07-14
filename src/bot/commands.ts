@@ -350,7 +350,8 @@ export function registerCommands(
         if (status?.model) {
           message += `*Model:* ${escapeMarkdown(status.model)} (from session)\n\n`
         } else {
-          message += `*Model:* Default (OpenCode configured default)\n\n`
+          const config = await client.getConfig()
+          message += `*Model:* \`${escapeMarkdown(config.model || 'unknown')}\` (default)\n\n`
         }
       } catch {
         message += `*Model:* Default (OpenCode configured default)\n\n`
@@ -367,7 +368,9 @@ export function registerCommands(
         if (status?.agent) {
           message += `*Mode:* \`${escapeMarkdown(status.agent)}\` (from session)\n`
         } else {
-          message += `*Mode:* Default (OpenCode configured default)\n`
+          const config = await client.getConfig()
+          const defaultAgent = Object.keys(config.agent || {}).find(k => config.agent?.[k]?.mode === 'all') || 'build'
+          message += `*Mode:* \`${escapeMarkdown(defaultAgent)}\` (default)\n`
         }
       } catch {
         message += `*Mode:* Default (OpenCode configured default)\n`
