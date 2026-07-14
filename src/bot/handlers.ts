@@ -1,4 +1,5 @@
 import { Bot } from 'grammy'
+import fs from 'fs'
 import { StateManager } from '../state/manager.js'
 import { OpenCodeClient } from '../opencode/client.js'
 import { PermissionHandler } from '../opencode/permission.js'
@@ -9,7 +10,7 @@ import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './his
 import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
 import { answerForIndex } from '../opencode/questionFormat.js'
 import { pickLargestPhoto, buildImagePart } from './photo.js'
-import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState } from './dirBrowser.js'
+import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState, getPendingFolderCreate, setPendingFolderCreate, clearPendingFolderCreate } from './dirBrowser.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -43,6 +44,40 @@ export function registerHandlers(
     }
 
     const threadId = getThreadId(ctx)
+    const text = ctx.message!.text!
+
+    // Skip if it's a command
+    if (text.startsWith('/')) {
+      return
+    }
+
+    // Handle pending folder creation from directory browser
+    const pendingPath = getPendingFolderCreate(ctx.chat.id, threadId)
+    if (pendingPath) {
+      clearPendingFolderCreate(ctx.chat.id, threadId)
+      const folderName = text.trim().replace(/[/\\]/g, '')
+      if (!folderName) {
+        await ctx.reply('Folder name cannot be empty.')
+        return
+      }
+      const newPath = `${pendingPath.replace(/\/+$/, '')}/${folderName}`
+      try {
+        fs.mkdirSync(newPath, { recursive: true })
+        const subdirs = await listSubdirs(client, pendingPath).catch(() => [] as import('./dirBrowser.js').DirEntry[])
+        const state = getBrowseState(ctx.chat.id, threadId)
+        const page = state?.page ?? 0
+        setBrowseState(ctx.chat.id, threadId, { path: pendingPath, subdirs, page })
+        const view = buildDirBrowser(pendingPath, subdirs, page)
+        await ctx.reply(view.text, {
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: view.inlineKeyboard },
+        })
+      } catch (error) {
+        await ctx.reply(`Failed to create folder: ${(error as Error).message}`)
+      }
+      return
+    }
+
     const { sessionId } = resolveSession(ctx, stateManager)
     if (!sessionId) {
       if (threadId > 0) {
@@ -50,13 +85,6 @@ export function registerHandlers(
       } else {
         await ctx.reply('No session selected. Use /session to create or select one.')
       }
-      return
-    }
-
-    const text = ctx.message.text
-
-    // Skip if it's a command
-    if (text.startsWith('/')) {
       return
     }
 
@@ -434,12 +462,22 @@ export function registerHandlers(
 
     // Navigable directory browser (for /newtopic)
     if (data === 'dnoop') { await ctx.answerCallbackQuery(); return }
-    if (data.startsWith('dnav:') || data === 'dup' || data.startsWith('dpg:') || data === 'dpick' || data === 'dcancel') {
+    if (data.startsWith('dnav:') || data === 'dup' || data.startsWith('dpg:') || data === 'dpick' || data === 'dcancel' || data === 'dnewfolder') {
       const threadId = getThreadId(ctx)
       const chatId = ctx.chat!.id
       const state = getBrowseState(chatId, threadId)
       if (!state) {
         await ctx.answerCallbackQuery('Browser expired — run /newtopic again')
+        return
+      }
+
+      if (data === 'dnewfolder') {
+        setPendingFolderCreate(chatId, threadId)
+        await ctx.answerCallbackQuery()
+        await ctx.editMessageText(
+          `📂 *Create new folder in*\n\`${state.path}\`\n\n_Send the folder name:_`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {})
         return
       }
 

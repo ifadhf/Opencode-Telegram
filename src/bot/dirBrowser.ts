@@ -45,9 +45,12 @@ export function buildDirBrowser(currentPath: string, subdirs: DirEntry[], page: 
 
   rows.push([
     { text: '⬆️ ..', callback_data: 'dup' },
-    { text: '✅ Select this folder', callback_data: 'dpick' },
+    { text: '📁 New folder', callback_data: 'dnewfolder' },
   ])
-  rows.push([{ text: '❌ Cancel', callback_data: 'dcancel' }])
+  rows.push([
+    { text: '✅ Select this folder', callback_data: 'dpick' },
+    { text: '❌ Cancel', callback_data: 'dcancel' },
+  ])
 
   let text = `📂 *Select working directory*\n\`${currentPath}\``
   if (subdirs.length === 0) text += '\n\n_(no subfolders — Select this folder or go up)_'
@@ -74,6 +77,7 @@ export interface BrowseState {
   path: string
   subdirs: DirEntry[]
   page: number
+  pendingFolderCreate?: boolean
 }
 
 const browseStates = new Map<string, BrowseState>()
@@ -87,4 +91,19 @@ export function getBrowseState(chatId: number, threadId: number): BrowseState | 
 }
 export function clearBrowseState(chatId: number, threadId: number): void {
   browseStates.delete(browseKey(chatId, threadId))
+}
+
+export function getPendingFolderCreate(chatId: number, threadId: number): string | undefined {
+  const s = browseStates.get(browseKey(chatId, threadId))
+  return s?.pendingFolderCreate ? s.path : undefined
+}
+
+export function setPendingFolderCreate(chatId: number, threadId: number): void {
+  const s = browseStates.get(browseKey(chatId, threadId))
+  if (s) s.pendingFolderCreate = true
+}
+
+export function clearPendingFolderCreate(chatId: number, threadId: number): void {
+  const s = browseStates.get(browseKey(chatId, threadId))
+  if (s) s.pendingFolderCreate = false
 }
