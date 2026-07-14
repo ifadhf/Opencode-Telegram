@@ -72,6 +72,7 @@ export class EventProcessor {
     while (this.running) {
       try {
         await this.permissionHandler.checkPendingPermissions().catch(() => {})
+        await this.permissionHandler.checkPermissionTimeouts().catch(() => {})
         await this.checkPendingQuestions().catch(() => {})
 
         // Discover busy sessions via topic bindings
@@ -156,7 +157,9 @@ export class EventProcessor {
           try {
             const messages = await this.client.getMessages(sessionId, 50)
 
-            busyInfo.lastActivityAt = Date.now()
+            if (this.hasNewProgress(messages, busyInfo)) {
+              busyInfo.lastActivityAt = Date.now()
+            }
 
             // Only messages after the anchor (the prompt we just sent) are new
             const newMessages = this.messagesAfterAnchor(messages, busyInfo.anchorMessageId)
@@ -434,12 +437,8 @@ export class EventProcessor {
     }
   }
 
-  private async processNewMessages(chatId: number, sessionId: string, messages: any[], busyInfo: BusySessionInfo): Promise<void> {
-    // Only cancel a pending completion debounce if there is genuinely new
-    // activity to process. Without this guard, every poll clears the pending
-    // timer (even when nothing is new), so the completion block below resets a
-    // fresh 5s timer every 3s poll and the debounce NEVER fires.
-    const hasNewActivity = messages.some(msg =>
+  private hasNewProgress(messages: any[], busyInfo: BusySessionInfo): boolean {
+    return messages.some(msg =>
       msg.role === 'assistant' && msg.parts?.some((part: any) => {
         const partKey = part.id || `${msg.id}:${part.type}`
         if (part.type === 'tool') {
@@ -459,6 +458,10 @@ export class EventProcessor {
         return !busyInfo.processedPartIds.has(partKey)
       })
     )
+  }
+
+  private async processNewMessages(chatId: number, sessionId: string, messages: any[], busyInfo: BusySessionInfo): Promise<void> {
+    const hasNewActivity = this.hasNewProgress(messages, busyInfo)
 
     if (hasNewActivity) {
       const pending = this.pendingCompletions.get(sessionId)

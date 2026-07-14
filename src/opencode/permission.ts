@@ -6,7 +6,8 @@ import { formatPermissionRequest } from '../utils/formatter.js'
 import { getLogger } from '../utils/logger.js'
 
 export class PermissionHandler {
-  private pendingRequests = new Map<string, { chatId: number; messageId: number }>()
+  private pendingRequests = new Map<string, { chatId: number; messageId: number; sentAt: number }>()
+  private readonly PERMISSION_TIMEOUT_MS = 5 * 60 * 1000
 
   constructor(
     private client: OpenCodeClient,
@@ -47,7 +48,7 @@ export class PermissionHandler {
 
       const msg = await this.bot.api.sendMessage(chatId, message, sendOpts)
 
-      this.pendingRequests.set(permission.id, { chatId, messageId: msg.message_id })
+      this.pendingRequests.set(permission.id, { chatId, messageId: msg.message_id, sentAt: Date.now() })
       log.info('Permission request sent', { requestId: permission.id, chatId, threadId })
     } catch (error) {
       log.error('Failed to send permission request', { error: (error as Error).message })
@@ -58,6 +59,22 @@ export class PermissionHandler {
     const log = getLogger()
     const data = callbackQuery.data
     const [_, reply, requestId] = data.split(':')
+
+    if (!this.pendingRequests.has(requestId)) {
+      await this.bot.api.answerCallbackQuery(callbackQuery.id, {
+        text: 'This permission request has expired',
+      })
+      try {
+        await this.bot.api.editMessageText(
+          callbackQuery.message.chat.id,
+          callbackQuery.message.message_id,
+          `Permission ${reply === 'reject' ? 'Rejected' : 'Approved'} (expired request)`
+        )
+      } catch {
+        // Message may be gone
+      }
+      return
+    }
 
     try {
       await this.client.replyPermission(requestId, reply as any)
@@ -95,6 +112,35 @@ export class PermissionHandler {
       }
     } catch (error) {
       getLogger().error('Failed to check pending permissions', { error: (error as Error).message })
+    }
+  }
+
+  async checkPermissionTimeouts(): Promise<void> {
+    const log = getLogger()
+    const now = Date.now()
+
+    for (const [requestId, info] of [...this.pendingRequests.entries()]) {
+      if (now - info.sentAt < this.PERMISSION_TIMEOUT_MS) continue
+
+      try {
+        await this.client.replyPermission(requestId, 'reject')
+      } catch {
+        // Permission may already be gone from the server — proceed with cleanup
+      }
+
+      this.pendingRequests.delete(requestId)
+
+      try {
+        await this.bot.api.editMessageText(
+          info.chatId,
+          info.messageId,
+          '⏰ Permission request expired (auto-rejected after 5 min)'
+        )
+      } catch {
+        // Message may have been deleted
+      }
+
+      log.info('Permission timed out', { requestId })
     }
   }
 }
