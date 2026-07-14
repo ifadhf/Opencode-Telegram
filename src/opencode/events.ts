@@ -1,4 +1,4 @@
-import { Bot } from 'grammy'
+import { Bot, InputFile } from 'grammy'
 import { OpenCodeClient } from './client.js'
 import { StateManager } from '../state/manager.js'
 import { PermissionHandler } from './permission.js'
@@ -7,6 +7,7 @@ import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
 import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
 import { renderQuestion } from './questionFormat.js'
 import { toTelegramMarkdown } from '../utils/markdown.js'
+import { imageFromPart, OutgoingImage } from '../bot/photo.js'
 import { QuestionRequest } from '../types/index.js'
 import { getLogger } from '../utils/logger.js'
 
@@ -344,6 +345,21 @@ export class EventProcessor {
     }
   }
 
+  // Send an image the agent produced (data:/http/path) back to the chat.
+  private async sendImage(chatId: number, threadId: number, img: OutgoingImage): Promise<void> {
+    try {
+      const opts: any = {}
+      if (threadId > 0) opts.message_thread_id = threadId
+      let photo: string | InputFile
+      if (img.source === 'url') photo = img.url!
+      else if (img.source === 'buffer') photo = new InputFile(img.buffer!, img.filename)
+      else photo = new InputFile(img.path!)
+      await this.bot.api.sendPhoto(chatId, photo, opts)
+    } catch (error) {
+      getLogger().warn('Failed to send agent image', { error: (error as Error).message })
+    }
+  }
+
   private async sendTodoUpdate(chatId: number, threadId: number, todos: TodoItem[]): Promise<void> {
     const statusIcon: Record<string, string> = {
       completed: '✅', in_progress: '🔄', pending: '⬜', cancelled: '❌',
@@ -498,6 +514,12 @@ export class EventProcessor {
               await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'MarkdownV2' })
             }
           }
+        }
+
+        if (part.type === 'file' && !busyInfo.processedPartIds.has(partKey)) {
+          busyInfo.processedPartIds.add(partKey)
+          const img = imageFromPart(part)
+          if (img) await this.sendImage(chatId, busyInfo.threadId, img)
         }
 
         if (part.type === 'tool') {
