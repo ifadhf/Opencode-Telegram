@@ -82,10 +82,16 @@ export function formatHistoryPage(
     return `📜 <b>History</b>\nSession: <code>${escapeHtml(sessionId)}</code>\n\nNo messages yet.`
   }
 
+  const sorted = [...messages].sort((a, b) => {
+    const ta = (a?.time?.created as number) ?? 0
+    const tb = (b?.time?.created as number) ?? 0
+    return ta - tb
+  })
+
   let text = `📜 <b>History</b>\nSession: <code>${escapeHtml(sessionId)}</code>\nPage ${page}/${totalPages}\n\n`
 
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]
+  for (let i = 0; i < sorted.length; i++) {
+    const m = sorted[i]
     const role = formatRole(m.role)
     const time = formatTimestamp(m.time.created)
     const content = getTextFromParts(m.parts)

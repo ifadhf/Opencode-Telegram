@@ -172,4 +172,36 @@ describe('Bug K human-friendly history contract', { skip: !ALL_IMPL }, () => {
     const texts = kb.inline_keyboard.flat().map(b => b.text)
     assert.ok(!texts.some(t => t.includes('Newer')), 'no Newer on last page')
   })
+
+  test('formatHistoryPage sorts messages chronologically (oldest→newest)', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
+    // Messages in REVERSE order (newest first) — sort should fix it
+    const msgs = [
+      makeMsg('user', [makeTextPart('3rd message')], { time: 3000 }),
+      makeMsg('assistant', [makeTextPart('2nd message')], { time: 2000 }),
+      makeMsg('user', [makeTextPart('1st message')], { time: 1000 }),
+    ]
+    const result = formatHistoryPage(msgs, 1, 1, 'ses_test')
+    const idx1 = result.indexOf('1st message')
+    const idx2 = result.indexOf('2nd message')
+    const idx3 = result.indexOf('3rd message')
+    assert.ok(idx1 > 0 && idx2 > 0 && idx3 > 0, 'all messages present')
+    assert.ok(idx1 < idx2, '1st (oldest) comes BEFORE 2nd')
+    assert.ok(idx2 < idx3, '2nd comes BEFORE 3rd (newest)')
+    assert.ok(idx1 < idx3, 'oldest first, newest last')
+  })
+
+  test('formatHistoryPage: same-timestamp messages preserve original order', async () => {
+    const { formatHistoryPage } = await import('../../dist/bot/history.js')
+    const msgs = [
+      makeMsg('assistant', [makeTextPart('msg-A')], { time: 1000 }),
+      makeMsg('assistant', [makeTextPart('msg-B')], { time: 1000 }),
+      makeMsg('assistant', [makeTextPart('msg-C')], { time: 1000 }),
+    ]
+    const result = formatHistoryPage(msgs, 1, 1, 'ses_test')
+    const idxA = result.indexOf('msg-A')
+    const idxB = result.indexOf('msg-B')
+    const idxC = result.indexOf('msg-C')
+    assert.ok(idxA < idxB && idxB < idxC, 'same-timestamp stays stable')
+  })
 })

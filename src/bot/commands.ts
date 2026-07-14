@@ -1231,7 +1231,6 @@ export function registerCommands(
 
     try {
       const messages = await client.getMessages(sessionId, 50)
-      messages.sort((a, b) => a.time.created - b.time.created)
       const lastPage = Math.ceil(messages.length / HISTORY_PAGE_SIZE) || 1
       const page = Math.max(1, parseInt(args, 10) || lastPage)
       const paginated = paginateMessages(messages, page, HISTORY_PAGE_SIZE)
