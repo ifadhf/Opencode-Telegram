@@ -189,6 +189,18 @@ export class StateManager {
     return undefined
   }
 
+  // Resolve which Telegram chat + forum thread a session's messages belong to.
+  // Topic-bound sessions first (forum topics, with their threadId), then legacy
+  // per-chat sessions (threadId 0). Single source of truth for routing agent
+  // output, permission prompts, and questions back to the right place.
+  resolveChat(sessionId: string): { chatId: number; threadId: number } | undefined {
+    const topic = this.getTopicBySession(sessionId)
+    if (topic) return topic
+    const chatId = this.getChatIdForSession(sessionId)
+    if (chatId !== undefined) return { chatId, threadId: 0 }
+    return undefined
+  }
+
   setCurrentModel(chatId: number, providerId: string, modelId: string): void {
     this.state.models.set(chatId, { providerId, modelId })
     this.save()

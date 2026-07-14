@@ -714,11 +714,7 @@ export class EventProcessor {
   }
 
   private resolveSessionChat(sessionId: string): { chatId: number; threadId: number } | undefined {
-    const topic = this.stateManager.getTopicBySession(sessionId)
-    if (topic) return topic
-    const chatId = this.stateManager.getChatIdForSession(sessionId)
-    if (chatId !== undefined) return { chatId, threadId: 0 }
-    return undefined
+    return this.stateManager.resolveChat(sessionId)
   }
 
   private async handleSessionError(event: any): Promise<void> {
