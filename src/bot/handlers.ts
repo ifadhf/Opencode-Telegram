@@ -535,7 +535,6 @@ export function registerHandlers(
       const sessionId = parts.slice(2).join(':')
       try {
         const messages = await client.getMessages(sessionId, 50)
-        messages.reverse()
         const paginated = paginateMessages(messages, page)
         const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
         const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
