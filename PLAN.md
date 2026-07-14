@@ -133,3 +133,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | **F7.3 enhancement**: "New folder" button di directory browser (`0049287`). |
 | 2026-07-14 | **F10**: `/subagent on|off` toggle — default OFF, cegah subagent stuck via `tools: { task: false }` di `prompt_async` (`aef07c4`). |
 | 2026-07-14 | **F11**: `/status` kini menampilkan permission overrides + timestamps created/updated (`e9d5ba5`). |
+| 2026-07-14 | **F12**: `/move <dir> [--changes]`, `/compact`, `/delete <id>`, session state di `/status`, fix escaping `\-` `\_` (`5346cb4`). |
