@@ -7,6 +7,23 @@ import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE
 import { buildDirBrowser, listSubdirs, setBrowseState } from './dirBrowser.js'
 import { getLogger } from '../utils/logger.js'
 
+// Build the "Available Providers" message. Pure + exported so it can be unit
+// tested and, crucially, chunked with splitMessage before sending (a long
+// provider list otherwise exceeds Telegram's 4096-char limit -> 400).
+export function formatProvidersList(providers: Array<{ id: string; models?: Record<string, any> }>): string {
+  let message = '*Available Providers:*\n\n'
+  for (let i = 0; i < providers.length; i++) {
+    const p = providers[i]
+    const modelCount = Object.keys(p.models || {}).length
+    message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+  }
+  message += '\nUse `/models <provider>` to see models for a provider.'
+  if (providers.length > 0) {
+    message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
+  }
+  return message
+}
+
 export function registerCommands(
   bot: Bot,
   stateManager: StateManager,
@@ -594,16 +611,10 @@ export function registerCommands(
 
       providersCache.set(ctx.chat.id, providers)
 
-      let message = '*Available Providers:*\n\n'
-      for (let i = 0; i < providers.length; i++) {
-        const p = providers[i]
-        const modelCount = Object.keys(p.models || {}).length
-        message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+      const message = formatProvidersList(providers)
+      for (const chunk of splitMessage(message)) {
+        await ctx.reply(chunk, { parse_mode: 'Markdown' })
       }
-      message += '\nUse `/models <provider>` to see models for a provider.'
-      message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
-
-      await ctx.reply(message, { parse_mode: 'Markdown' })
     } catch (error) {
       await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
     }
@@ -632,16 +643,10 @@ export function registerCommands(
 
         providersCache.set(ctx.chat.id, providers)
 
-        let message = '*Available Providers:*\n\n'
-        for (let i = 0; i < providers.length; i++) {
-          const p = providers[i]
-          const modelCount = Object.keys(p.models || {}).length
-          message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+        const message = formatProvidersList(providers)
+        for (const chunk of splitMessage(message)) {
+          await ctx.reply(chunk, { parse_mode: 'Markdown' })
         }
-        message += '\nUse `/models <provider>` to see models.'
-        message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
-
-        await ctx.reply(message, { parse_mode: 'Markdown' })
       } catch (error) {
         await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
       }
