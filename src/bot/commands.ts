@@ -302,8 +302,12 @@ export function registerCommands(
 
       try {
         const messages = await client.getMessages(sessionId, 1)
-        const lastMsg = messages[0]
+        const lastMsg = messages[0] as any
+        const STALE_MS = 120_000
+        const lastActivity = lastMsg?.time?.updated || lastMsg?.time?.created
+        const isStale = lastActivity && (Date.now() - lastActivity > STALE_MS)
         const isRunning = lastMsg?.role === 'assistant'
+          && !isStale
           && (!lastMsg.time?.completed || lastMsg.parts?.some((p: any) => p.state?.status === 'running'))
         if (isRunning) {
           message += `State: 🔄 Running\n`

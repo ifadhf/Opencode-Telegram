@@ -50,6 +50,7 @@ export const MessageInfo = z.object({
   time: z.object({
     created: z.number(),
     completed: z.number().optional(),
+    updated: z.number().optional(),
   }),
   parts: MessagePart.array().optional(),
   tokens: z.object({
