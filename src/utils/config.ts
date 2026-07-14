@@ -104,14 +104,28 @@ export function loadConfig(projectDir: string): BotConfig {
 
 export function validateConfig(config: BotConfig): void {
   if (!config.telegramToken) {
-    throw new Error('TELEGRAM_BOT_TOKEN is required.')
+    throw new Error('TELEGRAM_BOT_TOKEN is required. Set TELEGRAM_BOT_TOKEN in .env or .opencode-tele/config.json.')
   }
 
   if (!config.authorizedUserId) {
-    throw new Error('AUTHORIZED_USER_ID is required.')
+    throw new Error('AUTHORIZED_USER_ID is required. Set AUTHORIZED_USER_ID in .env or .opencode-tele/config.json.')
   }
 
   if (!config.openCodeUrl) {
     throw new Error('OPENCODE_SERVER_URL is required')
+  }
+}
+
+export interface FeatureFlags {
+  showToolCalls: boolean
+  showThinking: boolean
+  showTokens: boolean
+}
+
+export function validateFeatureFlags(env: Record<string, string | undefined> = {}): FeatureFlags {
+  return {
+    showToolCalls: env.SHOW_TOOL_CALLS === 'true',
+    showThinking: env.SHOW_THINKING === 'true',
+    showTokens: env.SHOW_TOKENS === 'true',
   }
 }

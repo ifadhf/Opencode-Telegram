@@ -84,10 +84,12 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 
 ### Fase 4 — Poles & deploy (1–2 hari)
 
-- [ ] README tulis ulang (fitur baru, setup forum topics, daftar flag)
-- [ ] `.env.example` lengkap
-- [ ] Deploy: `/opt/<nama>` + systemd user service + linger (pola sama dengan deployment ccbot)
-- [ ] Uji stabilitas: restart daemon, reconnect SSE, server OpenCode mati/naik lagi
+- [x] README tulis ulang (fitur baru, setup forum topics, daftar flag)
+- [x] `.env.example` lengkap
+- [x] Health monitor: crash detection & auto-restart OpenCode server (`src/opencode/health.ts`)
+- [x] Config hardening: `validateFeatureFlags()` + improved validation messages
+- [x] Deploy: `/opt/<nama>` + systemd user service + linger (pola sama dengan deployment ccbot)
+- [x] Uji stabilitas produksi: restart daemon, reconnect SSE, server OpenCode mati/naik lagi
 
 ## 4. Non-goals
 
@@ -121,3 +123,4 @@ Yang kurang hanyalah **lapisan UX** — kerja aditif di atas fondasi yang benar.
 | 2026-07-14 | Dokumentasi dikoreksi: test plan f1→f0/f2→f1, status F2 di `docs/` dikembalikan ke "belum mulai" |
 | 2026-07-14 | **Fase 2 selesai** (`9cdbf2f`): StateManager topic-aware (TDD 16/16 PASS), MessageQueue per-topic, handlers/events routing per message_thread_id, /newtopic + directory browser, /status per-topic, filter direktori session picker, topic deletion handling. **Human test 8/8 PASS** — Fase 2 tervalidasi end-to-end. |
 | 2026-07-14 | **Fase 3 selesai** (`6edc7c9`): voice transcription (TranscriptionClient + OpenAI Whisper API + `:voice` handler), `/history` pagination (`paginateMessages`, `formatHistoryPage`, `buildHistoryKeyboard` + inline keyboard `◀ Older/Newer ▶`). **TDD 21/21 PASS.** |
+| 2026-07-14 | **Fase 4 selesai**: README rewrite, .env.example lengkap, HealthMonitor crash detection + auto-restart, validateFeatureFlags(), config validation hardening, deploy `/opt/opencode-telegram` + systemd, uji stabilitas (crash→recovery ~15s, systemd restart clean). **TDD 27/27 PASS.** 1 bug ditemukan & diperbaiki saat uji stabilitas (`server.ts` stop() hang pada proses yang di-kill eksternal). |
