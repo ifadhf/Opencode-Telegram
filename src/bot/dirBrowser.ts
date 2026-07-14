@@ -1,0 +1,91 @@
+// Navigable directory browser for /newtopic. callback_data is limited to 64
+// bytes, so buttons carry indices (dnav:<i>) / verbs (dup, dpick, dpg:<n>,
+// dcancel) — never full paths. The current path + listing live in server-side
+// browse state keyed by chat+thread.
+
+export interface DirEntry {
+  name: string
+  path: string
+  isDir: boolean
+}
+
+export const DIRS_PER_PAGE = 6
+
+export interface DirBrowserView {
+  text: string
+  inlineKeyboard: Array<Array<{ text: string; callback_data: string }>>
+}
+
+// Parent of an absolute path, clamped at root.
+export function parentDir(p: string): string {
+  const trimmed = p.replace(/\/+$/, '')
+  if (trimmed === '' ) return '/'
+  const idx = trimmed.lastIndexOf('/')
+  return idx <= 0 ? '/' : trimmed.slice(0, idx)
+}
+
+export function buildDirBrowser(currentPath: string, subdirs: DirEntry[], page: number): DirBrowserView {
+  const totalPages = Math.max(1, Math.ceil(subdirs.length / DIRS_PER_PAGE))
+  const p = Math.min(Math.max(0, page), totalPages - 1)
+  const start = p * DIRS_PER_PAGE
+  const pageDirs = subdirs.slice(start, start + DIRS_PER_PAGE)
+
+  const rows: Array<Array<{ text: string; callback_data: string }>> = []
+  pageDirs.forEach((d, i) => {
+    rows.push([{ text: `📁 ${d.name}`, callback_data: `dnav:${start + i}` }])
+  })
+
+  if (totalPages > 1) {
+    rows.push([
+      { text: '◀', callback_data: `dpg:${p === 0 ? totalPages - 1 : p - 1}` },
+      { text: `${p + 1}/${totalPages}`, callback_data: 'dnoop' },
+      { text: '▶', callback_data: `dpg:${p === totalPages - 1 ? 0 : p + 1}` },
+    ])
+  }
+
+  rows.push([
+    { text: '⬆️ ..', callback_data: 'dup' },
+    { text: '✅ Select this folder', callback_data: 'dpick' },
+  ])
+  rows.push([{ text: '❌ Cancel', callback_data: 'dcancel' }])
+
+  let text = `📂 *Select working directory*\n\`${currentPath}\``
+  if (subdirs.length === 0) text += '\n\n_(no subfolders — Select this folder or go up)_'
+
+  return { text, inlineKeyboard: rows }
+}
+
+// List the immediate subdirectories of a path (dirs only, hidden excluded,
+// alphabetised). Loosely typed on the client so it stays unit-testable.
+export async function listSubdirs(
+  client: { listFiles: (p: string) => Promise<{ entries?: Array<{ name: string; path: string; isDir: boolean }> }> },
+  path: string
+): Promise<DirEntry[]> {
+  const res = await client.listFiles(path)
+  const entries = res.entries || []
+  return entries
+    .filter(e => e.isDir && !e.name.startsWith('.'))
+    .map(e => ({ name: e.name, path: e.path || `${path.replace(/\/+$/, '')}/${e.name}`, isDir: true }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// --- server-side browse state (single process) ---
+
+export interface BrowseState {
+  path: string
+  subdirs: DirEntry[]
+  page: number
+}
+
+const browseStates = new Map<string, BrowseState>()
+const browseKey = (chatId: number, threadId: number) => `${chatId}:${threadId}`
+
+export function setBrowseState(chatId: number, threadId: number, s: BrowseState): void {
+  browseStates.set(browseKey(chatId, threadId), s)
+}
+export function getBrowseState(chatId: number, threadId: number): BrowseState | undefined {
+  return browseStates.get(browseKey(chatId, threadId))
+}
+export function clearBrowseState(chatId: number, threadId: number): void {
+  browseStates.delete(browseKey(chatId, threadId))
+}

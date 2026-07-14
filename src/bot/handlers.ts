@@ -9,6 +9,7 @@ import { paginateMessages, formatHistoryPage, buildHistoryKeyboard } from './his
 import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
 import { answerForIndex } from '../opencode/questionFormat.js'
 import { pickLargestPhoto, buildImagePart } from './photo.js'
+import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState } from './dirBrowser.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -428,6 +429,78 @@ export function registerHandlers(
         await ctx.answerCallbackQuery('Failed')
         await ctx.editMessageText(`❌ Failed to create session: ${(error as Error).message}`)
       }
+      return
+    }
+
+    // Navigable directory browser (for /newtopic)
+    if (data === 'dnoop') { await ctx.answerCallbackQuery(); return }
+    if (data.startsWith('dnav:') || data === 'dup' || data.startsWith('dpg:') || data === 'dpick' || data === 'dcancel') {
+      const threadId = getThreadId(ctx)
+      const chatId = ctx.chat!.id
+      const state = getBrowseState(chatId, threadId)
+      if (!state) {
+        await ctx.answerCallbackQuery('Browser expired — run /newtopic again')
+        return
+      }
+
+      if (data === 'dcancel') {
+        clearBrowseState(chatId, threadId)
+        await ctx.answerCallbackQuery('Cancelled')
+        await ctx.editMessageText('❌ Cancelled').catch(() => {})
+        return
+      }
+
+      if (data === 'dpick') {
+        try {
+          const oldBinding = stateManager.getTopicSession(chatId, threadId)
+          if (oldBinding) {
+            await eventProcessor.forceSessionIdle(oldBinding.sessionId, chatId, '↪️ New session created')
+          }
+          const session = await client.createSession(state.path)
+          stateManager.setTopicSession(chatId, threadId, { sessionId: session.id, cwd: state.path })
+          clearBrowseState(chatId, threadId)
+          await ctx.answerCallbackQuery('Session created')
+          await ctx.editMessageText(
+            `✅ *New session created*\n` +
+            `Directory: \`${state.path}\`\n\n` +
+            `Send any message to start!`,
+            { parse_mode: 'Markdown' }
+          )
+        } catch (error) {
+          log.error('Failed to create topic session', { error: (error as Error).message })
+          await ctx.answerCallbackQuery('Failed')
+          await ctx.editMessageText(`❌ Failed to create session: ${(error as Error).message}`)
+        }
+        return
+      }
+
+      // Navigation: compute the new path/page, (re)list if the path changed, re-render.
+      let newPath = state.path
+      let newPage = state.page
+      if (data.startsWith('dnav:')) {
+        const idx = parseInt(data.slice('dnav:'.length), 10)
+        const target = state.subdirs[idx]
+        if (!target) { await ctx.answerCallbackQuery('That folder is gone'); return }
+        newPath = target.path
+        newPage = 0
+      } else if (data === 'dup') {
+        newPath = parentDir(state.path)
+        newPage = 0
+      } else if (data.startsWith('dpg:')) {
+        newPage = parseInt(data.slice('dpg:'.length), 10) || 0
+      }
+
+      const subdirs = newPath !== state.path
+        ? await listSubdirs(client, newPath).catch(() => [])
+        : state.subdirs
+      setBrowseState(chatId, threadId, { path: newPath, subdirs, page: newPage })
+
+      const view = buildDirBrowser(newPath, subdirs, newPage)
+      await ctx.answerCallbackQuery()
+      await ctx.editMessageText(view.text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: view.inlineKeyboard },
+      }).catch(() => {})
       return
     }
 

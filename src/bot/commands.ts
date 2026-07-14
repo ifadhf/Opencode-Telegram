@@ -4,6 +4,7 @@ import { OpenCodeClient, Model, Provider } from '../opencode/client.js'
 import { EventProcessor } from '../opencode/events.js'
 import { escapeMarkdown, splitMessage } from '../utils/formatter.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE_SIZE } from './history.js'
+import { buildDirBrowser, listSubdirs, setBrowseState } from './dirBrowser.js'
 import { getLogger } from '../utils/logger.js'
 
 export function registerCommands(
@@ -966,46 +967,18 @@ export function registerCommands(
     }
 
     try {
+      // Start a navigable browser at ~/workspace; the user can descend, go up
+      // (..), paginate, and Select this folder. State is kept server-side.
       const homeDir = process.env.HOME || '/home/fadh'
-      const workspaceDir = `${homeDir}/workspace`
+      const startDir = `${homeDir}/workspace`
+      const subdirs = await listSubdirs(client, startDir).catch(() => [])
+      setBrowseState(ctx.chat.id, threadId, { path: startDir, subdirs, page: 0 })
 
-      const dirs: Array<{ label: string; path: string }> = []
-
-      try {
-        const workspaceEntries = await client.listFiles(workspaceDir)
-        if (workspaceEntries.entries) {
-          for (const entry of workspaceEntries.entries.slice(0, 10)) {
-            if (entry.isDir && !entry.name.startsWith('.')) {
-              dirs.push({ label: `📁 ${entry.name}`, path: entry.path || `${workspaceDir}/${entry.name}` })
-            }
-          }
-        }
-      } catch {
-        // Ignore
-      }
-
-      if (dirs.length === 0) {
-        await ctx.reply(
-          'No directories found. Use `/newtopic <path>` to create a session directly.\n' +
-          'Example: `/newtopic /home/fadh/workspace/my-project`',
-          { parse_mode: 'Markdown' }
-        )
-        return
-      }
-
-      const inlineKeyboard = dirs.map(d => [{
-        text: d.label,
-        callback_data: `dir:${d.path}`,
-      }])
-
-      await ctx.reply(
-        '*Select a directory for this topic:*\n\n' +
-        `Or use \`/newtopic <path>\` for a custom directory.`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: inlineKeyboard },
-        }
-      )
+      const view = buildDirBrowser(startDir, subdirs, 0)
+      await ctx.reply(view.text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: view.inlineKeyboard },
+      })
     } catch (error) {
       await ctx.reply(`Failed to list directories: ${(error as Error).message}`)
     }
