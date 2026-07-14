@@ -1,4 +1,4 @@
-import { escapeMarkdown } from '../utils/formatter.js'
+import { escapeHtml } from '../utils/formatter.js'
 import type { QuestionRequest } from '../types/index.js'
 
 export interface RenderedQuestion {
@@ -16,7 +16,7 @@ export function renderQuestion(req: QuestionRequest): RenderedQuestion {
   const questionText = q?.question || 'OpenCode has a question'
   const options = q?.options || []
 
-  let text = `❓ *${escapeMarkdown(header)}*\n\n${escapeMarkdown(questionText)}`
+  let text = `❓ *${escapeHtml(header)}*\n\n${escapeHtml(questionText)}`
   if (req.questions && req.questions.length > 1) {
     text += `\n\n_(+${req.questions.length - 1} more — answer this first)_`
   }

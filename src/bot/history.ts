@@ -1,5 +1,5 @@
 import { MessageInfo, MessagePart } from '../types/index.js'
-import { escapeMarkdown } from '../utils/formatter.js'
+import { escapeHtml } from '../utils/formatter.js'
 
 export const HISTORY_PAGE_SIZE = 5
 
@@ -43,20 +43,20 @@ function formatTimestamp(created: number): string {
 }
 
 function getTextFromParts(parts?: MessagePart[]): string {
-  if (!parts || parts.length === 0) return '*(no content)*'
+  if (!parts || parts.length === 0) return '<i>(no content)</i>'
   const texts = parts
     .filter((p) => p.type === 'text' || p.type === 'reasoning')
     .map((p) => p.text || '')
     .filter(Boolean)
   if (texts.length === 0) {
     const types = parts.map((p) => p.type).join(', ')
-    return `*(${types})*`
+    return `<i>(${escapeHtml(types)})</i>`
   }
   let result = texts.join('\n')
   if (result.length > 500) {
     result = result.slice(0, 497) + '...'
   }
-  return escapeMarkdown(result)
+  return escapeHtml(result)
 }
 
 export function formatHistoryPage(
@@ -66,17 +66,17 @@ export function formatHistoryPage(
   sessionId: string
 ): string {
   if (messages.length === 0) {
-    return `📜 *History*\nSession: \`${sessionId}\`\n\nNo messages yet.`
+    return `📜 <b>History</b>\nSession: <code>${escapeHtml(sessionId)}</code>\n\nNo messages yet.`
   }
 
-  let text = `📜 *History*\nSession: \`${sessionId}\`\nPage ${page}/${totalPages}\n\n`
+  let text = `📜 <b>History</b>\nSession: <code>${escapeHtml(sessionId)}</code>\nPage ${page}/${totalPages}\n\n`
 
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]
     const role = formatRole(m.role)
     const time = formatTimestamp(m.time.created)
     const content = getTextFromParts(m.parts)
-    text += `*${role}* _${time}_\n${content}\n`
+    text += `<b>${escapeHtml(role)}</b> <i>${escapeHtml(time)}</i>\n${content}\n`
     if (i < messages.length - 1) {
       text += '\n'
     }

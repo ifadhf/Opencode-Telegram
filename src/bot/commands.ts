@@ -2,7 +2,7 @@ import { Bot } from 'grammy'
 import { StateManager } from '../state/manager.js'
 import { OpenCodeClient, Model, Provider } from '../opencode/client.js'
 import { EventProcessor } from '../opencode/events.js'
-import { escapeMarkdown, splitMessage } from '../utils/formatter.js'
+import { escapeHtml, splitMessage } from '../utils/formatter.js'
 import { paginateMessages, formatHistoryPage, buildHistoryKeyboard, HISTORY_PAGE_SIZE } from './history.js'
 import { buildDirBrowser, listSubdirs, setBrowseState } from './dirBrowser.js'
 import { getLogger } from '../utils/logger.js'
@@ -11,15 +11,15 @@ import { getLogger } from '../utils/logger.js'
 // tested and, crucially, chunked with splitMessage before sending (a long
 // provider list otherwise exceeds Telegram's 4096-char limit -> 400).
 export function formatProvidersList(providers: Array<{ id: string; models?: Record<string, any> }>): string {
-  let message = '*Available Providers:*\n\n'
+  let message = '<b>Available Providers:</b>\n\n'
   for (let i = 0; i < providers.length; i++) {
     const p = providers[i]
     const modelCount = Object.keys(p.models || {}).length
-    message += `${i + 1}. \`${escapeMarkdown(p.id)}\` (${modelCount} models)\n`
+    message += `${i + 1}. <code>${escapeHtml(p.id)}</code> (${modelCount} models)\n`
   }
-  message += '\nUse `/models <provider>` to see models for a provider.'
+  message += '\nUse <code>/models <provider></code> to see models for a provider.'
   if (providers.length > 0) {
-    message += '\nExample: `/models ' + escapeMarkdown(providers[0].id) + '`'
+    message += '\nExample: <code>/models ' + escapeHtml(providers[0].id) + '</code>'
   }
   return message
 }
@@ -57,8 +57,8 @@ export function registerCommands(
     }
 
     await ctx.reply(
-      '*Welcome to OpenCode Telegram Bot!*\n\n' +
-      '*Session Commands:*\n' +
+      '<b>Welcome to OpenCode Telegram Bot!</b>\n\n' +
+      '<b>Session Commands:</b>\n' +
       '/session - Create new session\n' +
       '/sessions - List recent sessions\n' +
       '/continue - Continue an old session\n' +
@@ -66,24 +66,24 @@ export function registerCommands(
       '/status - Show current session\n' +
       '/abort - Stop running task\n' +
       '/clear - Clear current session\n\n' +
-      '*Model Commands:*\n' +
+      '<b>Model Commands:</b>\n' +
       '/providers - List AI providers\n' +
       '/models <provider> - List models for provider\n' +
       '/model - Show/select current model\n\n' +
-      '*Mode Commands:*\n' +
+      '<b>Mode Commands:</b>\n' +
       '/mode - Select mode (build/plan)\n' +
       '/modes - List available modes\n\n' +
-      '*File Commands:*\n' +
+      '<b>File Commands:</b>\n' +
       '/files - List project files\n' +
       '/file <path> - View file content\n' +
       '/find <pattern> - Search code\n\n' +
-      '*Info Commands:*\n' +
+      '<b>Info Commands:</b>\n' +
       '/cost - Show cost tracking\n' +
       '/todo - Show task list\n' +
       '/diff - Show file changes\n\n' +
       'Just send any message to prompt OpenCode!\n' +
-      '_Multiple messages are queued automatically._',
-      { parse_mode: 'Markdown' }
+      '<i>Multiple messages are queued automatically.</i>',
+      { parse_mode: 'HTML' }
     )
   })
 
@@ -111,8 +111,8 @@ export function registerCommands(
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
-        await ctx.reply(`Selected session: \`${escapeMarkdown(session.id)}\``, {
-          parse_mode: 'Markdown',
+        await ctx.reply(`Selected session: <code>${escapeHtml(session.id)}</code>`, {
+          parse_mode: 'HTML',
         })
       } catch (error) {
         await ctx.reply(`Session not found: ${(error as Error).message}`)
@@ -129,8 +129,8 @@ export function registerCommands(
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
-        await ctx.reply(`Created new session: \`${escapeMarkdown(session.id)}\`\n\nSend any message to start!`, {
-          parse_mode: 'Markdown',
+        await ctx.reply(`Created new session: <code>${escapeHtml(session.id)}</code>\n\nSend any message to start!`, {
+          parse_mode: 'HTML',
         })
       } catch (error) {
         await ctx.reply(`Failed to create session: ${(error as Error).message}`)
@@ -154,7 +154,7 @@ export function registerCommands(
 
       if (sessions.length === 0) {
         if (cwd) {
-          await ctx.reply(`No sessions found in \`${escapeMarkdown(cwd)}\`. Use /newtopic to create one.`, { parse_mode: 'Markdown' })
+          await ctx.reply(`No sessions found in <code>${escapeHtml(cwd)}</code>. Use /newtopic to create one.`, { parse_mode: 'HTML' })
         } else {
           await ctx.reply('No sessions found. Use /session to create a new one.')
         }
@@ -166,8 +166,8 @@ export function registerCommands(
         return [{ text: title.substring(0, 64), callback_data: `session:${s.id}` }]
       })
 
-      await ctx.reply('*Select a session to continue:*', {
-        parse_mode: 'Markdown',
+      await ctx.reply('<b>Select a session to continue:</b>', {
+        parse_mode: 'HTML',
         reply_markup: { inline_keyboard: inlineKeyboard },
       })
     } catch (error) {
@@ -193,14 +193,14 @@ export function registerCommands(
         return
       }
 
-      let message = '*Recent Sessions:*\n\n'
+      let message = '<b>Recent Sessions:</b>\n\n'
       for (const s of sessions) {
         const title = s.title || '(untitled)'
-        message += `- \`${escapeMarkdown(s.id)}\`\n  ${escapeMarkdown(title)}\n\n`
+        message += `- <code>${escapeHtml(s.id)}</code>\n  ${escapeHtml(title)}\n\n`
       }
-      message += 'Use `/session <id>` to select a session.'
+      message += 'Use <code>/session <id></code> to select a session.'
 
-      await ctx.reply(message, { parse_mode: 'Markdown' })
+      await ctx.reply(message, { parse_mode: 'HTML' })
     } catch (error) {
       await ctx.reply(`Failed to list sessions: ${(error as Error).message}`)
     }
@@ -285,7 +285,7 @@ export function registerCommands(
       return
     }
 
-    let message = '*Current Status*\n\n'
+    let message = '<b>Current Status</b>\n\n'
     let sessionModel: { id: string; providerID: string; variant?: string } | undefined
     let sessionAgent: string | undefined
 
@@ -294,9 +294,9 @@ export function registerCommands(
       sessionModel = session.model
       sessionAgent = session.agent
       const sessionTitle = session.title || '(untitled)'
-      message += `*Session:*\n`
-      message += `ID: \`${escapeMarkdown(session.id)}\`\n`
-      message += `Title: ${escapeMarkdown(sessionTitle)}\n`
+      message += `<b>Session:</b>\n`
+      message += `ID: <code>${escapeHtml(session.id)}</code>\n`
+      message += `Title: ${escapeHtml(sessionTitle)}\n`
 
       try {
         const messages = await client.getMessages(sessionId, 1)
@@ -316,7 +316,7 @@ export function registerCommands(
         message += `State: ❓ Unknown\n`
       }
 
-      message += `Directory: \`${escapeMarkdown(session.directory)}\`\n`
+      message += `Directory: <code>${escapeHtml(session.directory)}</code>\n`
 
       if ((session as any).summary) {
         const summary = (session as any).summary
@@ -327,9 +327,9 @@ export function registerCommands(
         const perms = (session as any).permission as Array<{ permission: string; pattern: string; action: string }>
         const overrides = perms.filter(p => p.action === 'deny')
         if (overrides.length > 0) {
-          message += `*Permission overrides:*\n`
+          message += `<b>Permission overrides:</b>\n`
           for (const p of overrides) {
-            message += `  \`${escapeMarkdown(p.permission)}\` → ${p.action} (${escapeMarkdown(p.pattern)})\n`
+            message += `  <code>${escapeHtml(p.permission)}</code> → ${p.action} (${escapeHtml(p.pattern)})\n`
           }
         }
       }
@@ -345,62 +345,62 @@ export function registerCommands(
 
       message += '\n'
     } catch {
-      message += `*Session:* \`${escapeMarkdown(sessionId)}\` (not found)\n\n`
+      message += `<b>Session:</b> <code>${escapeHtml(sessionId)}</code> (not found)\n\n`
     }
 
     const binding = threadId > 0 ? stateManager.getTopicSession(ctx.chat.id, threadId) : undefined
     const topicModel = binding?.model
     const model = topicModel || stateManager.getCurrentModel(ctx.chat.id)
     if (model) {
-      message += `*Model:* ${escapeMarkdown(model.providerId)}/${escapeMarkdown(model.modelId)}\n\n`
+      message += `<b>Model:</b> ${escapeHtml(model.providerId)}/${escapeHtml(model.modelId)}\n\n`
     } else if (sessionModel) {
-      message += `*Model:* \`${escapeMarkdown(sessionModel.id)}\` (session)\n\n`
+      message += `<b>Model:</b> <code>${escapeHtml(sessionModel.id)}</code> (session)\n\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)
         if (status?.model) {
-          message += `*Model:* ${escapeMarkdown(status.model)} (from session)\n\n`
+          message += `<b>Model:</b> ${escapeHtml(status.model)} (from session)\n\n`
         } else {
           const config = await client.getConfig()
-          message += `*Model:* \`${escapeMarkdown(config.model || 'unknown')}\` (default)\n\n`
+          message += `<b>Model:</b> <code>${escapeHtml(config.model || 'unknown')}</code> (default)\n\n`
         }
       } catch {
-        message += `*Model:* Default (OpenCode configured default)\n\n`
+        message += `<b>Model:</b> Default (OpenCode configured default)\n\n`
       }
     }
 
     const topicMode = binding?.mode
     const mode = topicMode || stateManager.getCurrentMode(ctx.chat.id)
     if (mode) {
-      message += `*Mode:* \`${escapeMarkdown(mode)}\`\n`
+      message += `<b>Mode:</b> <code>${escapeHtml(mode)}</code>\n`
     } else if (sessionAgent) {
-      message += `*Mode:* \`${escapeMarkdown(sessionAgent)}\` (session)\n`
+      message += `<b>Mode:</b> <code>${escapeHtml(sessionAgent)}</code> (session)\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)
         if (status?.agent) {
-          message += `*Mode:* \`${escapeMarkdown(status.agent)}\` (from session)\n`
+          message += `<b>Mode:</b> <code>${escapeHtml(status.agent)}</code> (from session)\n`
         } else {
           const config = await client.getConfig()
           const defaultAgent = Object.keys(config.agent || {}).find(k => config.agent?.[k]?.mode === 'all') || 'build'
-          message += `*Mode:* \`${escapeMarkdown(defaultAgent)}\` (default)\n`
+          message += `<b>Mode:</b> <code>${escapeHtml(defaultAgent)}</code> (default)\n`
         }
       } catch {
-        message += `*Mode:* Default (OpenCode configured default)\n`
+        message += `<b>Mode:</b> Default (OpenCode configured default)\n`
       }
     }
 
     const cost = stateManager.getCost(sessionId)
     if (cost && cost.totalCost > 0) {
-      message += `\n*Cost:* $${cost.totalCost.toFixed(4)} (${cost.messages} messages)\n`
+      message += `\n<b>Cost:</b> $${cost.totalCost.toFixed(4)} (${cost.messages} messages)\n`
     }
 
     const promptCount = stateManager.getPromptCount(ctx.chat.id)
     if (promptCount > 0) {
-      message += `\n_Prompts sent: ${promptCount}_`
+      message += `\n<i>Prompts sent: ${promptCount}</i>`
     }
 
-    await ctx.reply(message, { parse_mode: 'Markdown' })
+    await ctx.reply(message, { parse_mode: 'HTML' })
   })
 
   // Subagent toggle
@@ -426,14 +426,14 @@ export function registerCommands(
     const arg = ctx.message?.text?.split(/\s+/)[1]?.toLowerCase()
     if (arg === 'on') {
       stateManager.setAllowSubagent(ctx.chat.id, threadId, true)
-      await ctx.reply('✅ Subagent: *ON* — agent can dispatch subagents (explore/general)', { parse_mode: 'Markdown' })
+      await ctx.reply('✅ Subagent: <b>ON</b> — agent can dispatch subagents (explore/general)', { parse_mode: 'HTML' })
     } else if (arg === 'off') {
       stateManager.setAllowSubagent(ctx.chat.id, threadId, false)
-      await ctx.reply('✅ Subagent: *OFF* — agent will not dispatch subagents', { parse_mode: 'Markdown' })
+      await ctx.reply('✅ Subagent: <b>OFF</b> — agent will not dispatch subagents', { parse_mode: 'HTML' })
     } else {
       const allowed = stateManager.getAllowSubagent(ctx.chat.id, threadId)
       const status = allowed ? 'ON' : 'OFF'
-      await ctx.reply(`Subagent: *${status}*\n\nUse \`/subagent on\` or \`/subagent off\` to toggle.`, { parse_mode: 'Markdown' })
+      await ctx.reply(`Subagent: <b>${status}</b>\n\nUse <code>/subagent on</code> or <code>/subagent off</code> to toggle.`, { parse_mode: 'HTML' })
     }
   })
 
@@ -453,7 +453,7 @@ export function registerCommands(
 
     const args = ctx.message?.text?.split(/\s+/) || []
     if (args.length < 2) {
-      await ctx.reply('Usage: `/move <directory> [--changes]`\n\nMove session to another directory. Use `--changes` to transfer uncommitted changes.', { parse_mode: 'Markdown' })
+      await ctx.reply('Usage: <code>/move <directory> [--changes]</code>\n\nMove session to another directory. Use <code>--changes</code> to transfer uncommitted changes.', { parse_mode: 'HTML' })
       return
     }
 
@@ -469,9 +469,9 @@ export function registerCommands(
         }
       }
       const msg = moveChanges
-        ? `✅ Session moved to \`${escapeMarkdown(directory)}\` (with uncommitted changes)`
-        : `✅ Session moved to \`${escapeMarkdown(directory)}\``
-      await ctx.reply(msg, { parse_mode: 'Markdown' })
+        ? `✅ Session moved to <code>${escapeHtml(directory)}</code> (with uncommitted changes)`
+        : `✅ Session moved to <code>${escapeHtml(directory)}</code>`
+      await ctx.reply(msg, { parse_mode: 'HTML' })
     } catch (error) {
       await ctx.reply(`❌ Failed to move session: ${(error as Error).message}`)
     }
@@ -513,21 +513,21 @@ export function registerCommands(
     if (!targetId) {
       const { sessionId, threadId } = resolveSessionFromCtx(ctx)
       if (!sessionId) {
-        await ctx.reply(threadId > 0 ? 'No session bound to this topic. Use `/delete <session_id>`.' : 'No session selected. Use `/delete <session_id>`.', { parse_mode: 'Markdown' })
+        await ctx.reply(threadId > 0 ? 'No session bound to this topic. Use <code>/delete <session_id></code>.' : 'No session selected. Use <code>/delete <session_id></code>.', { parse_mode: 'HTML' })
         return
       }
-      await ctx.reply(`Current session: \`${escapeMarkdown(sessionId)}\`\n\nTo delete, use: \`/delete ${escapeMarkdown(sessionId)}\``, { parse_mode: 'Markdown' })
+      await ctx.reply(`Current session: <code>${escapeHtml(sessionId)}</code>\n\nTo delete, use: <code>/delete ${escapeHtml(sessionId)}</code>`, { parse_mode: 'HTML' })
       return
     }
 
     if (!targetId.startsWith('ses_')) {
-      await ctx.reply('Invalid session ID. Must start with `ses_`.', { parse_mode: 'Markdown' })
+      await ctx.reply('Invalid session ID. Must start with <code>ses_</code>.', { parse_mode: 'HTML' })
       return
     }
 
     try {
       await client.deleteSession(targetId)
-      await ctx.reply(`🗑️ Session deleted: \`${escapeMarkdown(targetId)}\``, { parse_mode: 'Markdown' })
+      await ctx.reply(`🗑️ Session deleted: <code>${escapeHtml(targetId)}</code>`, { parse_mode: 'HTML' })
     } catch (error) {
       await ctx.reply(`❌ Failed to delete session: ${(error as Error).message}`)
     }
@@ -554,18 +554,18 @@ export function registerCommands(
       return
     }
 
-    let message = `*Cost Tracking*\n\n`
-    message += `*Total:* $${cost.totalCost.toFixed(4)}\n`
-    message += `*Messages:* ${cost.messages}\n`
-    message += `*Avg/Message:* $${(cost.totalCost / cost.messages).toFixed(4)}\n\n`
-    message += `*Tokens:*\n`
+    let message = `<b>Cost Tracking</b>\n\n`
+    message += `<b>Total:</b> $${cost.totalCost.toFixed(4)}\n`
+    message += `<b>Messages:</b> ${cost.messages}\n`
+    message += `<b>Avg/Message:</b> $${(cost.totalCost / cost.messages).toFixed(4)}\n\n`
+    message += `<b>Tokens:</b>\n`
     message += `  Input: ${cost.totalInput.toLocaleString()}\n`
     message += `  Output: ${cost.totalOutput.toLocaleString()}\n`
     message += `  Reasoning: ${cost.totalReasoning.toLocaleString()}\n`
     message += `  Cache Read: ${cost.totalCacheRead.toLocaleString()}\n`
     message += `  Cache Write: ${cost.totalCacheWrite.toLocaleString()}\n`
 
-    await ctx.reply(message, { parse_mode: 'Markdown' })
+    await ctx.reply(message, { parse_mode: 'HTML' })
   })
 
   // Todo command
@@ -592,14 +592,14 @@ export function registerCommands(
         completed: '✅', in_progress: '🔄', pending: '⬜', cancelled: '❌',
       }
 
-      let message = `📋 *Task List:*\n\n`
+      let message = `📋 <b>Task List:</b>\n\n`
       for (const todo of todos) {
         const icon = statusIcon[todo.status] || '⬜'
         const content = todo.content?.substring(0, 80) || ''
-        message += `${icon} ${escapeMarkdown(content)}\n`
+        message += `${icon} ${escapeHtml(content)}\n`
       }
 
-      await ctx.reply(message, { parse_mode: 'Markdown' })
+      await ctx.reply(message, { parse_mode: 'HTML' })
     } catch (error) {
       await ctx.reply(`Failed to get tasks: ${(error as Error).message}`)
     }
@@ -625,15 +625,15 @@ export function registerCommands(
         return
       }
 
-      let message = `📁 *File Changes:*\n\n`
+      let message = `📁 <b>File Changes:</b>\n\n`
       for (const diff of diffs) {
         const statusIcon = diff.status === 'added' ? '🆕' : diff.status === 'deleted' ? '🗑️' : '📝'
-        message += `${statusIcon} \`${escapeMarkdown(diff.file)}\` (+${diff.additions} -${diff.deletions})\n`
+        message += `${statusIcon} <code>${escapeHtml(diff.file)}</code> (+${diff.additions} -${diff.deletions})\n`
       }
 
       const chunks = splitMessage(message)
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
       }
     } catch (error) {
       await ctx.reply(`Failed to get diff: ${(error as Error).message}`)
@@ -673,16 +673,16 @@ export function registerCommands(
         return
       }
 
-      let message = `📂 *Directory:*\n\n`
+      let message = `📂 <b>Directory:</b>\n\n`
       for (const entry of entries) {
         const icon = entry.type === 'directory' ? '📁' : '📄'
         const name = entry.name || entry.path
-        message += `${icon} \`${escapeMarkdown(name)}\`\n`
+        message += `${icon} <code>${escapeHtml(name)}</code>\n`
       }
 
       const chunks = splitMessage(message)
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
       }
     } catch (error) {
       await ctx.reply(`Failed to list files: ${(error as Error).message}`)
@@ -701,7 +701,7 @@ export function registerCommands(
     log.info('User command', { command: '/file', args: filePath, userId: ctx.from?.id })
 
     if (!filePath) {
-      await ctx.reply('Usage: `/file <path>`\nExample: `/file src/index.ts`', { parse_mode: 'Markdown' })
+      await ctx.reply('Usage: <code>/file <path></code>\nExample: <code>/file src/index.ts</code>', { parse_mode: 'HTML' })
       return
     }
 
@@ -710,23 +710,23 @@ export function registerCommands(
       const content = result.content || ''
 
       if (!content) {
-        await ctx.reply(`📄 File is empty: \`${escapeMarkdown(filePath)}\``, { parse_mode: 'Markdown' })
+        await ctx.reply(`📄 File is empty: <code>${escapeHtml(filePath)}</code>`, { parse_mode: 'HTML' })
         return
       }
 
       const maxChunk = 4000
       if (content.length <= maxChunk) {
-        await ctx.reply(`📄 *${escapeMarkdown(filePath)}*\n\n\`\`\`\n${content}\n\`\`\``, {
-          parse_mode: 'Markdown',
+        await ctx.reply(`📄 <b>${escapeHtml(filePath)}</b>\n\n<pre>${content}</pre>`, {
+          parse_mode: 'HTML',
         })
       } else {
-        await ctx.reply(`📄 *${escapeMarkdown(filePath)}* (${content.length} chars)`, {
-          parse_mode: 'Markdown',
+        await ctx.reply(`📄 <b>${escapeHtml(filePath)}</b> (${content.length} chars)`, {
+          parse_mode: 'HTML',
         })
 
         for (let i = 0; i < content.length; i += maxChunk) {
           const chunk = content.substring(i, i + maxChunk)
-          await ctx.reply(`\`\`\`\n${chunk}\n\`\`\``, { parse_mode: 'Markdown' })
+          await ctx.reply(`<pre>${chunk}</pre>`, { parse_mode: 'HTML' })
         }
       }
     } catch (error) {
@@ -746,7 +746,7 @@ export function registerCommands(
     log.info('User command', { command: '/find', args: pattern, userId: ctx.from?.id })
 
     if (!pattern) {
-      await ctx.reply('Usage: `/find <pattern>`\nExample: `/find function handleEvent`', { parse_mode: 'Markdown' })
+      await ctx.reply('Usage: <code>/find <pattern></code>\nExample: <code>/find function handleEvent</code>', { parse_mode: 'HTML' })
       return
     }
 
@@ -754,23 +754,23 @@ export function registerCommands(
       const results = await client.searchCode(pattern)
 
       if (!results || results.length === 0) {
-        await ctx.reply(`🔍 No results for: \`${escapeMarkdown(pattern)}\``, { parse_mode: 'Markdown' })
+        await ctx.reply(`🔍 No results for: <code>${escapeHtml(pattern)}</code>`, { parse_mode: 'HTML' })
         return
       }
 
-      let message = `🔍 *Results for:* \`${escapeMarkdown(pattern)}\`\n\n`
+      let message = `🔍 <b>Results for:</b> <code>${escapeHtml(pattern)}</code>\n\n`
       for (const result of results.slice(0, 20)) {
         const text = result.text?.trim().substring(0, 80) || ''
-        message += `\`${escapeMarkdown(result.path)}:${result.line}\`\n${escapeMarkdown(text)}\n\n`
+        message += `<code>${escapeHtml(result.path)}:${result.line}</code>\n${escapeHtml(text)}\n\n`
       }
 
       if (results.length > 20) {
-        message += `_...and ${results.length - 20} more results_\n`
+        message += `<i>...and ${results.length - 20} more results</i>\n`
       }
 
       const chunks = splitMessage(message)
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
       }
     } catch (error) {
       await ctx.reply(`Search failed: ${(error as Error).message}`)
@@ -798,7 +798,7 @@ export function registerCommands(
 
       const message = formatProvidersList(providers)
       for (const chunk of splitMessage(message)) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
       }
     } catch (error) {
       await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
@@ -830,7 +830,7 @@ export function registerCommands(
 
         const message = formatProvidersList(providers)
         for (const chunk of splitMessage(message)) {
-          await ctx.reply(chunk, { parse_mode: 'Markdown' })
+          await ctx.reply(chunk, { parse_mode: 'HTML' })
         }
       } catch (error) {
         await ctx.reply(`Failed to list providers: ${(error as Error).message}`)
@@ -843,27 +843,27 @@ export function registerCommands(
       const models = await client.listModels(providerFilter)
 
       if (models.length === 0) {
-        await ctx.reply(`No models found for provider: \`${escapeMarkdown(providerFilter)}\``, {
-          parse_mode: 'Markdown',
+        await ctx.reply(`No models found for provider: <code>${escapeHtml(providerFilter)}</code>`, {
+          parse_mode: 'HTML',
         })
         return
       }
 
       modelsCache.set(ctx.chat.id, models)
 
-      let message = `*Models for* \`${escapeMarkdown(providerFilter)}\`:\n\n`
+      let message = `<b>Models for</b> <code>${escapeHtml(providerFilter)}</code>:\n\n`
       for (let i = 0; i < models.length; i++) {
-        message += `${i + 1}. \`${escapeMarkdown(models[i].id)}\``
+        message += `${i + 1}. <code>${escapeHtml(models[i].id)}</code>`
         if (models[i].name && models[i].name !== models[i].id) {
-          message += ` - ${escapeMarkdown(models[i].name)}`
+          message += ` - ${escapeHtml(models[i].name)}`
         }
         message += '\n'
       }
-      message += `\nSelect with: \`/model ${escapeMarkdown(providerFilter)} <model_id>\``
+      message += `\nSelect with: <code>/model ${escapeHtml(providerFilter)} <model_id></code>`
 
       const chunks = splitMessage(message)
       for (const chunk of chunks) {
-        await ctx.reply(chunk, { parse_mode: 'Markdown' })
+        await ctx.reply(chunk, { parse_mode: 'HTML' })
       }
     } catch (error) {
       await ctx.reply(`Failed to list models: ${(error as Error).message}`)
@@ -888,19 +888,19 @@ export function registerCommands(
 
       let message = ''
       if (currentModel) {
-        message += `*Current Model:*\n\`${escapeMarkdown(currentModel.providerId)}/${escapeMarkdown(currentModel.modelId)}\`\n\n`
+        message += `<b>Current Model:</b>\n<code>${escapeHtml(currentModel.providerId)}/${escapeHtml(currentModel.modelId)}</code>\n\n`
       } else {
-        message += '*No model selected.* Using default.\n\n'
+        message += '<b>No model selected.</b> Using default.\n\n'
       }
 
-      message += '*Usage:*\n'
-      message += '• `/providers` - List providers\n'
-      message += '• `/models <provider>` - List models for provider\n'
-      message += '• `/model <provider> <model>` - Select model\n\n'
+      message += '<b>Usage:</b>\n'
+      message += '• <code>/providers</code> - List providers\n'
+      message += '• <code>/models <provider></code> - List models for provider\n'
+      message += '• <code>/model <provider> <model></code> - Select model\n\n'
       message += 'Example:\n'
-      message += '`/model anthropic claude-3-opus`'
+      message += '<code>/model anthropic claude-3-opus</code>'
 
-      await ctx.reply(message, { parse_mode: 'Markdown' })
+      await ctx.reply(message, { parse_mode: 'HTML' })
       return
     }
 
@@ -908,10 +908,10 @@ export function registerCommands(
     if (parts.length < 2) {
       await ctx.reply(
         'Invalid format. Use:\n' +
-        '`/model <provider> <model>`\n\n' +
+        '<code>/model <provider> <model></code>\n\n' +
         'Example:\n' +
-        '`/model anthropic claude-3-opus`',
-        { parse_mode: 'Markdown' }
+        '<code>/model anthropic claude-3-opus</code>',
+        { parse_mode: 'HTML' }
       )
       return
     }
@@ -933,8 +933,8 @@ export function registerCommands(
     }
 
     await ctx.reply(
-      `✅ *Model selected:*\n\`${escapeMarkdown(providerId)}/${escapeMarkdown(modelId)}\``,
-      { parse_mode: 'Markdown' }
+      `✅ <b>Model selected:</b>\n<code>${escapeHtml(providerId)}/${escapeHtml(modelId)}</code>`,
+      { parse_mode: 'HTML' }
     )
   })
 
@@ -952,40 +952,40 @@ export function registerCommands(
 
       if (agents.length === 0) {
         await ctx.reply(
-          '*Available Modes:*\n\n' +
-          '• `build` - Code implementation mode\n' +
-          '• `plan` - Planning and design mode\n' +
-          '• `code` - Alternative coding mode\n' +
-          '• `review` - Code review mode\n' +
-          '• `debug` - Debugging mode\n\n' +
-          'Use `/mode <name>` to select.',
-          { parse_mode: 'Markdown' }
+          '<b>Available Modes:</b>\n\n' +
+          '• <code>build</code> - Code implementation mode\n' +
+          '• <code>plan</code> - Planning and design mode\n' +
+          '• <code>code</code> - Alternative coding mode\n' +
+          '• <code>review</code> - Code review mode\n' +
+          '• <code>debug</code> - Debugging mode\n\n' +
+          'Use <code>/mode <name></code> to select.',
+          { parse_mode: 'HTML' }
         )
         return
       }
 
-      let message = '*Available Modes:*\n\n'
+      let message = '<b>Available Modes:</b>\n\n'
       for (let i = 0; i < agents.length; i++) {
         const agent = agents[i]
-        message += `${i + 1}. \`${escapeMarkdown(agent.name)}\``
+        message += `${i + 1}. <code>${escapeHtml(agent.name)}</code>`
         if (agent.description) {
-          message += ` - ${escapeMarkdown(agent.description)}`
+          message += ` - ${escapeHtml(agent.description)}`
         }
         message += '\n'
       }
-      message += '\nUse `/mode <name>` to select.'
+      message += '\nUse <code>/mode <name></code> to select.'
 
-      await ctx.reply(message, { parse_mode: 'Markdown' })
+      await ctx.reply(message, { parse_mode: 'HTML' })
     } catch {
       await ctx.reply(
-        '*Available Modes:*\n\n' +
-        '• `build` - Code implementation mode\n' +
-        '• `plan` - Planning and design mode\n' +
-        '• `code` - Alternative coding mode\n' +
-        '• `review` - Code review mode\n' +
-        '• `debug` - Debugging mode\n\n' +
-        'Use `/mode <name>` to select.',
-        { parse_mode: 'Markdown' }
+        '<b>Available Modes:</b>\n\n' +
+        '• <code>build</code> - Code implementation mode\n' +
+        '• <code>plan</code> - Planning and design mode\n' +
+        '• <code>code</code> - Alternative coding mode\n' +
+        '• <code>review</code> - Code review mode\n' +
+        '• <code>debug</code> - Debugging mode\n\n' +
+        'Use <code>/mode <name></code> to select.',
+        { parse_mode: 'HTML' }
       )
     }
   })
@@ -1008,27 +1008,27 @@ export function registerCommands(
 
       let message = ''
       if (currentMode) {
-        message += `*Current Mode:* \`${escapeMarkdown(currentMode)}\`\n\n`
+        message += `<b>Current Mode:</b> <code>${escapeHtml(currentMode)}</code>\n\n`
       } else {
-        message += '*No mode selected.* Using default.\n\n'
+        message += '<b>No mode selected.</b> Using default.\n\n'
       }
 
-      message += '*Usage:* `/mode <name>`\n\n'
+      message += '<b>Usage:</b> <code>/mode <name></code>\n\n'
       message += 'Allowed modes:\n'
-      message += '• `build` - Code implementation\n'
-      message += '• `plan` - Planning and design\n\n'
-      message += 'Use `/modes` to see all available.'
+      message += '• <code>build</code> - Code implementation\n'
+      message += '• <code>plan</code> - Planning and design\n\n'
+      message += 'Use <code>/modes</code> to see all available.'
 
-      await ctx.reply(message, { parse_mode: 'Markdown' })
+      await ctx.reply(message, { parse_mode: 'HTML' })
       return
     }
 
     if (args !== 'build' && args !== 'plan') {
       await ctx.reply(
-        `❌ Invalid mode: \`${escapeMarkdown(args)}\`\n\n` +
-        'Only `build` and `plan` modes are allowed.\n' +
-        'Use `/mode build` or `/mode plan`.',
-        { parse_mode: 'Markdown' }
+        `❌ Invalid mode: <code>${escapeHtml(args)}</code>\n\n` +
+        'Only <code>build</code> and <code>plan</code> modes are allowed.\n' +
+        'Use <code>/mode build</code> or <code>/mode plan</code>.',
+        { parse_mode: 'HTML' }
       )
       return
     }
@@ -1047,8 +1047,8 @@ export function registerCommands(
     }
 
     await ctx.reply(
-      `✅ *Mode selected:* \`${escapeMarkdown(args)}\``,
-      { parse_mode: 'Markdown' }
+      `✅ <b>Mode selected:</b> <code>${escapeHtml(args)}</code>`,
+      { parse_mode: 'HTML' }
     )
   })
 
@@ -1070,7 +1070,7 @@ export function registerCommands(
     if (eventProcessor) {
       const status = eventProcessor.getWorkingStatus(sessionId)
       if (status) {
-        await ctx.reply(`🔧 *Currently working:*\n${escapeMarkdown(status)}`, { parse_mode: 'Markdown' })
+        await ctx.reply(`🔧 <b>Currently working:</b>\n${escapeHtml(status)}`, { parse_mode: 'HTML' })
         return
       }
     }
@@ -1086,25 +1086,25 @@ export function registerCommands(
           const inProgress = todos.filter(t => t.status === 'in_progress')
           const pending = todos.filter(t => t.status === 'pending')
 
-          let message = '🔧 *Working on:*\n\n'
+          let message = '🔧 <b>Working on:</b>\n\n'
           if (inProgress.length > 0) {
-            message += '*In Progress:*\n'
+            message += '<b>In Progress:</b>\n'
             for (const t of inProgress) {
-              message += `🔄 ${escapeMarkdown(t.content)}\n`
+              message += `🔄 ${escapeHtml(t.content)}\n`
             }
             message += '\n'
           }
           if (pending.length > 0) {
-            message += '*Up Next:*\n'
+            message += '<b>Up Next:</b>\n'
             for (const t of pending.slice(0, 5)) {
-              message += `⬜ ${escapeMarkdown(t.content)}\n`
+              message += `⬜ ${escapeHtml(t.content)}\n`
             }
           }
           if (inProgress.length === 0 && pending.length === 0) {
             message += 'No tasks in todo list. OpenCode may be planning or thinking.'
           }
 
-          await ctx.reply(message, { parse_mode: 'Markdown' })
+          await ctx.reply(message, { parse_mode: 'HTML' })
         } catch {
           await ctx.reply('🔧 OpenCode is working but could not fetch details.')
         }
@@ -1144,11 +1144,11 @@ export function registerCommands(
         stateManager.setTopicSession(ctx.chat.id, threadId, { sessionId: session.id, cwd: args })
 
         await ctx.reply(
-          `✅ *Session created for this topic*\n` +
-          `ID: \`${escapeMarkdown(session.id)}\`\n` +
-          `Directory: \`${escapeMarkdown(args)}\`\n\n` +
+          `✅ <b>Session created for this topic</b>\n` +
+          `ID: <code>${escapeHtml(session.id)}</code>\n` +
+          `Directory: <code>${escapeHtml(args)}</code>\n\n` +
           `Send any message to start!`,
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'HTML' }
         )
       } catch (error) {
         await ctx.reply(`❌ Failed to create session: ${(error as Error).message}`)
@@ -1166,7 +1166,7 @@ export function registerCommands(
 
       const view = buildDirBrowser(startDir, subdirs, 0)
       await ctx.reply(view.text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: { inline_keyboard: view.inlineKeyboard },
       })
     } catch (error) {
@@ -1184,8 +1184,8 @@ export function registerCommands(
     log.info('User command', { command: '/help', userId: ctx.from?.id })
 
     await ctx.reply(
-      '*OpenCode Telegram Bot Help*\n\n' +
-      '*Session Commands:*\n' +
+      '<b>OpenCode Telegram Bot Help</b>\n\n' +
+      '<b>Session Commands:</b>\n' +
       '/session - Create new session\n' +
       '/session <id> - Select existing session\n' +
       '/sessions - List recent sessions\n' +
@@ -1195,36 +1195,36 @@ export function registerCommands(
       '/working - Show what OpenCode is doing now\n' +
       '/abort - Stop running session\n' +
       '/clear - Clear current settings\n\n' +
-      '*Model Commands:*\n' +
+      '<b>Model Commands:</b>\n' +
       '/providers - List AI providers\n' +
       '/models <provider> - List models for provider\n' +
       '/model - Show current model\n' +
       '/model <provider> <model> - Select model\n\n' +
-      '*Mode Commands:*\n' +
+      '<b>Mode Commands:</b>\n' +
       '/mode - Show current mode\n' +
       '/mode <name> - Select mode\n' +
       '/modes - List available modes\n\n' +
-      '*File Commands:*\n' +
+      '<b>File Commands:</b>\n' +
       '/files [path] - List files in directory\n' +
       '/file <path> - View file content\n' +
       '/find <pattern> - Search code\n\n' +
-      '*Info Commands:*\n' +
+      '<b>Info Commands:</b>\n' +
       '/cost - Show cost tracking\n' +
       '/todo - Show task list\n' +
       '/diff - Show file changes\n' +
       '/working - Show current working task\n\n' +
-      '*Usage:*\n' +
+      '<b>Usage:</b>\n' +
       'Just send any message to prompt OpenCode!\n' +
       'Multiple messages are queued and processed in order.\n\n' +
-      '*Tips:*\n' +
-      '• Use `/providers` then `/models <provider>` to browse\n' +
-      '• Use `/mode plan` for planning\n' +
-      '• Use `/mode build` for coding\n' +
-      '• Use `/abort` to stop a running task\n' +
-      '• Use `/working` to check what OpenCode is doing\n' +
-      '• Use `/todo` to see the task list\n' +
+      '<b>Tips:</b>\n' +
+      '• Use <code>/providers</code> then <code>/models <provider></code> to browse\n' +
+      '• Use <code>/mode plan</code> for planning\n' +
+      '• Use <code>/mode build</code> for coding\n' +
+      '• Use <code>/abort</code> to stop a running task\n' +
+      '• Use <code>/working</code> to check what OpenCode is doing\n' +
+      '• Use <code>/todo</code> to see the task list\n' +
       '• Send multiple messages — they queue automatically',
-      { parse_mode: 'Markdown' }
+      { parse_mode: 'HTML' }
     )
   })
 
@@ -1252,7 +1252,7 @@ export function registerCommands(
       const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
       const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
 
-      const replyOpts: any = { parse_mode: 'Markdown', reply_markup: keyboard }
+      const replyOpts: any = { parse_mode: 'HTML', reply_markup: keyboard }
       if (threadId > 0) replyOpts.message_thread_id = threadId
       await ctx.reply(text, replyOpts)
     } catch (error) {

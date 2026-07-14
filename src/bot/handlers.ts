@@ -69,7 +69,7 @@ export function registerHandlers(
         setBrowseState(ctx.chat.id, threadId, { path: pendingPath, subdirs, page })
         const view = buildDirBrowser(pendingPath, subdirs, page)
         await ctx.reply(view.text, {
-          parse_mode: 'Markdown',
+          parse_mode: 'HTML',
           reply_markup: { inline_keyboard: view.inlineKeyboard },
         })
       } catch (error) {
@@ -426,7 +426,7 @@ export function registerHandlers(
       }
 
       await ctx.answerCallbackQuery('Session selected')
-      await ctx.editMessageText(`✅ Session selected: \`${sessionId}\``, { parse_mode: 'Markdown' })
+      await ctx.editMessageText(`✅ Session selected: <code>${sessionId}</code>`, { parse_mode: 'HTML' })
       return
     }
 
@@ -451,11 +451,11 @@ export function registerHandlers(
 
         await ctx.answerCallbackQuery('Session created')
         await ctx.editMessageText(
-          `✅ *New session created*\n` +
-          `ID: \`${session.id}\`\n` +
-          `Directory: \`${directory}\`\n\n` +
+          `✅ <b>New session created</b>\n` +
+          `ID: <code>${session.id}</code>\n` +
+          `Directory: <code>${directory}</code>\n\n` +
           `Send any message to start!`,
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'HTML' }
         )
       } catch (error) {
         log.error('Failed to create topic session', { error: (error as Error).message })
@@ -480,8 +480,8 @@ export function registerHandlers(
         setPendingFolderCreate(chatId, threadId)
         await ctx.answerCallbackQuery()
         await ctx.editMessageText(
-          `📂 *Create new folder in*\n\`${state.path}\`\n\n_Send the folder name:_`,
-          { parse_mode: 'Markdown' }
+          `📂 <b>Create new folder in</b>\n<code>${state.path}</code>\n\n_Send the folder name:_`,
+          { parse_mode: 'HTML' }
         ).catch(() => {})
         return
       }
@@ -504,10 +504,10 @@ export function registerHandlers(
           clearBrowseState(chatId, threadId)
           await ctx.answerCallbackQuery('Session created')
           await ctx.editMessageText(
-            `✅ *New session created*\n` +
-            `Directory: \`${state.path}\`\n\n` +
+            `✅ <b>New session created</b>\n` +
+            `Directory: <code>${state.path}</code>\n\n` +
             `Send any message to start!`,
-            { parse_mode: 'Markdown' }
+            { parse_mode: 'HTML' }
           )
         } catch (error) {
           log.error('Failed to create topic session', { error: (error as Error).message })
@@ -541,7 +541,7 @@ export function registerHandlers(
       const view = buildDirBrowser(newPath, subdirs, newPage)
       await ctx.answerCallbackQuery()
       await ctx.editMessageText(view.text, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: { inline_keyboard: view.inlineKeyboard },
       }).catch(() => {})
       return
@@ -569,7 +569,7 @@ export function registerHandlers(
         const paginated = paginateMessages(messages, page)
         const text = formatHistoryPage(paginated.items, paginated.page, paginated.totalPages, sessionId)
         const keyboard = buildHistoryKeyboard(paginated.page, paginated.totalPages, sessionId)
-        await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: keyboard })
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard })
       } catch (error) {
         log.error('Failed to load history page', { error: (error as Error).message })
         await ctx.answerCallbackQuery('Failed to load page')

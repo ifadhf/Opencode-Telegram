@@ -3,7 +3,7 @@ import { OpenCodeClient } from './client.js'
 import { StateManager } from '../state/manager.js'
 import { PermissionHandler } from './permission.js'
 import { MessageQueue } from '../bot/queue.js'
-import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
+import { escapeHtml, splitMessage, stripAnsi } from '../utils/formatter.js'
 import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
 import { renderQuestion } from './questionFormat.js'
 import { toTelegramMarkdown } from '../utils/markdown.js'
@@ -327,7 +327,7 @@ export class EventProcessor {
             working.chatId,
             working.messageId,
             statusText,
-            { parse_mode: 'Markdown' }
+            { parse_mode: 'HTML' }
           ).catch(() => {})
         }
       }
@@ -371,14 +371,14 @@ export class EventProcessor {
     const pendingTodos = todos.filter(t => t.status !== 'completed' && t.status !== 'cancelled')
     if (pendingTodos.length === 0) return
 
-    let message = `📋 *Todo List (${pendingTodos.length} remaining):*\n\n`
+    let message = `📋 <b>Todo List (${pendingTodos.length} remaining):</b>\n\n`
     for (const todo of todos.slice(0, 15)) {
       const icon = statusIcon[todo.status] || '⬜'
       const content = todo.content?.substring(0, 80) || ''
-      message += `${icon} ${escapeMarkdown(content)}\n`
+      message += `${icon} ${escapeHtml(content)}\n`
     }
 
-    await this.sendWithRateLimit(chatId, threadId, message, { parse_mode: 'Markdown' })
+    await this.sendWithRateLimit(chatId, threadId, message, { parse_mode: 'HTML' })
   }
 
   private hashTodos(todos: TodoItem[]): string {
@@ -433,7 +433,7 @@ export class EventProcessor {
         this.messageQueue.setIdle(chatId, threadId)
       }
     } else {
-      await this.bot.api.sendMessage(chatId, '✅ *Selesai — menunggu input*', { ...sendOpts, parse_mode: 'Markdown' }).catch(() => {})
+      await this.bot.api.sendMessage(chatId, '✅ <b>Selesai — menunggu input</b>', { ...sendOpts, parse_mode: 'HTML' }).catch(() => {})
     }
   }
 
@@ -485,8 +485,8 @@ export class EventProcessor {
             await this.sendWithRateLimit(
               chatId,
               busyInfo.threadId,
-              `🚀 *Step started:* ${escapeMarkdown(stepTitle)}`,
-              { parse_mode: 'Markdown' }
+              `🚀 <b>Step started:</b> ${escapeHtml(stepTitle)}`,
+              { parse_mode: 'HTML' }
             )
           }
         }
@@ -546,8 +546,8 @@ export class EventProcessor {
               await this.sendWithRateLimit(
                 chatId,
                 busyInfo.threadId,
-                `⏳ ${icon} *${formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
-                { parse_mode: 'Markdown' }
+                `⏳ ${icon} <b>${formatToolName(toolName)}:</b> ${escapeHtml(title.substring(0, 100))}`,
+                { parse_mode: 'HTML' }
               )
             }
           } else if (status === 'completed' || status === 'error') {
@@ -559,7 +559,7 @@ export class EventProcessor {
 
             const summary = this.buildToolSummary(toolName, part, runningEntry.title)
             if (summary) {
-              await this.sendWithRateLimit(chatId, busyInfo.threadId, summary, { parse_mode: 'Markdown' })
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, summary, { parse_mode: 'HTML' })
             }
           }
         }
@@ -615,21 +615,21 @@ export class EventProcessor {
 
     if (status === 'error') {
       const errorMsg = stripAnsi(stateData.error || 'Unknown error')
-      return `${icon} *${name}:* ❌ Failed — ${escapeMarkdown(errorMsg.substring(0, 200))}`
+      return `${icon} <b>${name}:</b> ❌ Failed — ${escapeHtml(errorMsg.substring(0, 200))}`
     }
 
     if (tool === 'bash') {
       const exitCode = stateData.exitCode
       const command = stateData.command || runningTitle || ''
       if (exitCode !== undefined && exitCode !== 0) {
-        return `${icon} *${name}:* Exit code ${exitCode}`
+        return `${icon} <b>${name}:</b> Exit code ${exitCode}`
       }
       if (output) {
         const lines = output.split('\n').length
         const size = output.length
-        let summary = `${icon} *${name}:*`
+        let summary = `${icon} <b>${name}:</b>`
         if (lines <= 3 && size <= 200) {
-          summary += `\n\`\`\`\n${escapeMarkdown(output.trim().substring(0, 200))}\n\`\`\``
+          summary += `\n\`\`\`\n${escapeHtml(output.trim().substring(0, 200))}\n\`\`\``
         } else if (lines > 0) {
           summary += ` ${lines} lines, ${size} chars`
         } else {
@@ -637,35 +637,35 @@ export class EventProcessor {
         }
         return summary
       }
-      return `${icon} *${name}*`
+      return `${icon} <b>${name}</b>`
     }
 
     if (tool === 'read') {
       if (output) {
         const lines = output.split('\n').length
-        return `${icon} *${name}:* ${lines} lines`
+        return `${icon} <b>${name}:</b> ${lines} lines`
       }
-      return `${icon} *${name}:* ${escapeMarkdown(runningTitle?.substring(0, 100) || '')}`
+      return `${icon} <b>${name}:</b> ${escapeHtml(runningTitle?.substring(0, 100) || '')}`
     }
 
     if (tool === 'grep' || tool === 'glob') {
       if (output) {
         const matches = output.trim().split('\n').filter(l => l.trim()).length
-        return `${icon} *${name}:* ${matches} match${matches !== 1 ? 'es' : ''}`
+        return `${icon} <b>${name}:</b> ${matches} match${matches !== 1 ? 'es' : ''}`
       }
-      return `${icon} *${name}:* ${escapeMarkdown(runningTitle?.substring(0, 100) || '')}`
+      return `${icon} <b>${name}:</b> ${escapeHtml(runningTitle?.substring(0, 100) || '')}`
     }
 
     if (output) {
       const short = output.trim().substring(0, 150)
-      return `${icon} *${name}:* ${escapeMarkdown(short)}`
+      return `${icon} <b>${name}:</b> ${escapeHtml(short)}`
     }
 
     if (runningTitle) {
-      return `${icon} *${name}:* ${escapeMarkdown(runningTitle.substring(0, 100))}`
+      return `${icon} <b>${name}:</b> ${escapeHtml(runningTitle.substring(0, 100))}`
     }
 
-    return `${icon} *${name}*`
+    return `${icon} <b>${name}</b>`
   }
 
   private messagesAfterAnchor(messages: any[], anchorId?: string): any[] {
@@ -762,12 +762,12 @@ export class EventProcessor {
     const errorName = event.error?.name || 'Error'
     const errorMsg = stripAnsi(event.error?.message || 'Unknown error')
 
-    const opts: any = { parse_mode: 'Markdown' }
+    const opts: any = { parse_mode: 'HTML' }
     if (target.threadId > 0) opts.message_thread_id = target.threadId
 
     await this.bot.api.sendMessage(
       target.chatId,
-      `⚠️ *${escapeMarkdown(errorName)}*\n${escapeMarkdown(errorMsg.substring(0, 300))}`,
+      `⚠️ <b>${escapeHtml(errorName)}</b>\n${escapeHtml(errorMsg.substring(0, 300))}`,
       opts
     ).catch(() => {})
   }
@@ -779,10 +779,10 @@ export class EventProcessor {
     const diffs = event.diff || []
     if (diffs.length === 0) return
 
-    let message = `📁 *File Changes (${diffs.length}):*\n\n`
+    let message = `📁 <b>File Changes (${diffs.length}):</b>\n\n`
     for (const diff of diffs.slice(0, 10)) {
       const statusIcon = diff.status === 'added' ? '🆕' : diff.status === 'deleted' ? '🗑️' : '📝'
-      message += `${statusIcon} \`${escapeMarkdown(diff.file)}\` (+${diff.additions || 0} -${diff.deletions || 0})\n`
+      message += `${statusIcon} <code>${escapeHtml(diff.file)}</code> (+${diff.additions || 0} -${diff.deletions || 0})\n`
     }
     if (diffs.length > 10) {
       message += `_...and ${diffs.length - 10} more files_\n`
@@ -790,7 +790,7 @@ export class EventProcessor {
 
     const chunks = splitMessage(message)
     for (const chunk of chunks) {
-      await this.sendWithRateLimit(target.chatId, target.threadId, chunk, { parse_mode: 'Markdown' })
+      await this.sendWithRateLimit(target.chatId, target.threadId, chunk, { parse_mode: 'HTML' })
     }
   }
 
@@ -804,8 +804,8 @@ export class EventProcessor {
     if (info.title) {
       await this.sendWithRateLimit(
         target.chatId, target.threadId,
-        `📝 *Session title:* ${escapeMarkdown(info.title)}`,
-        { parse_mode: 'Markdown' }
+        `📝 <b>Session title:</b> ${escapeHtml(info.title)}`,
+        { parse_mode: 'HTML' }
       )
     }
 
@@ -815,7 +815,7 @@ export class EventProcessor {
         await this.sendWithRateLimit(
           target.chatId, target.threadId,
           `📊 Changes: +${s.additions || 0} -${s.deletions || 0} (${s.files || 0} files)`,
-          { parse_mode: 'Markdown' }
+          { parse_mode: 'HTML' }
         )
       }
     }
@@ -827,8 +827,8 @@ export class EventProcessor {
 
     await this.sendWithRateLimit(
       target.chatId, target.threadId,
-      '📦 *Context compacted* — older messages summarized to save space.',
-      { parse_mode: 'Markdown' }
+      '📦 <b>Context compacted</b> — older messages summarized to save space.',
+      { parse_mode: 'HTML' }
     )
   }
 
@@ -861,7 +861,7 @@ export class EventProcessor {
     log.info('Question asked', { questionId: req.id, sessionID: req.sessionID })
 
     const { text, inlineKeyboard } = renderQuestion(req)
-    const opts: any = { parse_mode: 'Markdown', reply_markup: { inline_keyboard: inlineKeyboard } }
+    const opts: any = { parse_mode: 'HTML', reply_markup: { inline_keyboard: inlineKeyboard } }
     if (target.threadId > 0) opts.message_thread_id = target.threadId
 
     await this.bot.api.sendMessage(target.chatId, text, opts).catch(error => {
@@ -884,16 +884,16 @@ export class EventProcessor {
     for (const chatId of chatIds) {
       await this.sendWithRateLimit(
         chatId, 0,
-        `🔔 *Update Available*: OpenCode \`${escapeMarkdown(event.version || 'new version')}\` is available!`,
-        { parse_mode: 'Markdown' }
+        `🔔 <b>Update Available</b>: OpenCode <code>${escapeHtml(event.version || 'new version')}</code> is available!`,
+        { parse_mode: 'HTML' }
       )
     }
     const topicBindings = this.stateManager.getAllTopicBindings()
     for (const binding of topicBindings) {
       await this.sendWithRateLimit(
         binding.chatId, binding.threadId,
-        `🔔 *Update Available*: OpenCode \`${escapeMarkdown(event.version || 'new version')}\` is available!`,
-        { parse_mode: 'Markdown' }
+        `🔔 <b>Update Available</b>: OpenCode <code>${escapeHtml(event.version || 'new version')}</code> is available!`,
+        { parse_mode: 'HTML' }
       )
     }
   }

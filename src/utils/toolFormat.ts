@@ -1,4 +1,4 @@
-import { escapeMarkdown } from './formatter.js'
+import { escapeHtml } from './formatter.js'
 
 // Pure formatting helpers for tool activity and the live "Working..." status
 // bubble. Kept out of events.ts so they can be unit-tested in isolation.
@@ -33,14 +33,14 @@ export function buildWorkingStatus(step: string, tools: ActiveTool[]): string {
   const parts: string[] = []
 
   if (step) {
-    parts.push(`🚀 *Step:* ${escapeMarkdown(step)}`)
+    parts.push(`🚀 *Step:* ${escapeHtml(step)}`)
   }
 
   for (const t of tools.slice(0, 3)) {
     const icon = getToolIcon(t.tool)
     const name = formatToolName(t.tool)
     if (t.title) {
-      parts.push(`${icon} *${name}:* ${escapeMarkdown(t.title.substring(0, 80))}`)
+      parts.push(`${icon} *${name}:* ${escapeHtml(t.title.substring(0, 80))}`)
     } else {
       parts.push(`${icon} *${name}*`)
     }

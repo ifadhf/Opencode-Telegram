@@ -31,7 +31,7 @@ export class PermissionHandler {
 
     try {
       const sendOpts: any = {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [

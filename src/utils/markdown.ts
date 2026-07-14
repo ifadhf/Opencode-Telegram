@@ -1,5 +1,5 @@
 import telegramifyMarkdown from 'telegramify-markdown'
-import { escapeMarkdown } from './formatter.js'
+import { escapeHtml } from './formatter.js'
 
 // Convert agent-authored Markdown into Telegram MarkdownV2: real bold, headings,
 // lists, and preserved fenced/inline code, with reserved chars escaped only in
@@ -10,6 +10,6 @@ export function toTelegramMarkdown(md: string): string {
   try {
     return telegramifyMarkdown(md, 'escape')
   } catch {
-    return escapeMarkdown(md)
+    return escapeHtml(md)
   }
 }

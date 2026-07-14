@@ -29,6 +29,10 @@ export function escapeMarkdown(text: string): string {
   return text.replace(/([*[\]()~`>#+=|{}.!])/g, '\\$1')
 }
 
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 export function formatPermissionRequest(permission: PermissionRequest): string {
   const patterns = permission.patterns.map((p: string) => `\`${escapeMarkdown(p)}\``).join(', ')
 
