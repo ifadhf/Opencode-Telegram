@@ -288,9 +288,13 @@ export function registerCommands(
     }
 
     let message = '*Current Status*\n\n'
+    let sessionModel: { id: string; providerID: string; variant?: string } | undefined
+    let sessionAgent: string | undefined
 
     try {
       const session = await client.getSession(sessionId)
+      sessionModel = session.model
+      sessionAgent = session.agent
       const sessionTitle = session.title || '(untitled)'
       message += `*Session:*\n`
       message += `ID: \`${escapeMarkdown(session.id)}\`\n`
@@ -344,6 +348,8 @@ export function registerCommands(
     const model = topicModel || stateManager.getCurrentModel(ctx.chat.id)
     if (model) {
       message += `*Model:* ${escapeMarkdown(model.providerId)}/${escapeMarkdown(model.modelId)}\n\n`
+    } else if (sessionModel) {
+      message += `*Model:* \`${escapeMarkdown(sessionModel.id)}\` (session)\n\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)
@@ -362,6 +368,8 @@ export function registerCommands(
     const mode = topicMode || stateManager.getCurrentMode(ctx.chat.id)
     if (mode) {
       message += `*Mode:* \`${escapeMarkdown(mode)}\`\n`
+    } else if (sessionAgent) {
+      message += `*Mode:* \`${escapeMarkdown(sessionAgent)}\` (session)\n`
     } else {
       try {
         const status = await client.getSessionStatus(sessionId)

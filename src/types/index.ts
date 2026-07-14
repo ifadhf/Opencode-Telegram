@@ -12,6 +12,8 @@ export const SessionInfo = z.object({
     deletions: z.number().optional(),
     files: z.number().optional(),
   }).optional(),
+  model: z.object({ id: z.string(), providerID: z.string(), variant: z.string().optional() }).optional(),
+  agent: z.string().optional(),
 })
 export type SessionInfo = z.infer<typeof SessionInfo>
 
