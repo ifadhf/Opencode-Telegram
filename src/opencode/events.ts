@@ -4,6 +4,7 @@ import { StateManager } from '../state/manager.js'
 import { PermissionHandler } from './permission.js'
 import { MessageQueue } from '../bot/queue.js'
 import { escapeMarkdown, splitMessage, stripAnsi } from '../utils/formatter.js'
+import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
 import { getLogger } from '../utils/logger.js'
 
 interface BusySessionInfo {
@@ -37,7 +38,7 @@ const COMPLETION_DEBOUNCE_MS = 5000
 
 export class EventProcessor {
   private running = false
-  private workingSessions = new Map<string, { chatId: number; threadId: number; messageId: number; statusMessageId?: number }>()
+  private workingSessions = new Map<string, { chatId: number; threadId: number; messageId: number }>()
   private consecutiveErrors = 0
   private maxConsecutiveErrors = 10
   private busySessions = new Map<string, BusySessionInfo>()
@@ -45,7 +46,6 @@ export class EventProcessor {
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
-  private readonly WORKING_STATUS_INTERVAL_MS = 15000
 
   constructor(
     private client: OpenCodeClient,
@@ -63,7 +63,6 @@ export class EventProcessor {
     log.info('Event processor started (Polling mode)')
 
     let todoPollCounter = 0
-    let statusPollCounter = 0
 
     while (this.running) {
       try {
@@ -145,7 +144,6 @@ export class EventProcessor {
         }
 
         todoPollCounter++
-        statusPollCounter++
 
         const sessionsToProcess = [...this.busySessions.entries()]
         for (const [sessionId, busyInfo] of sessionsToProcess) {
@@ -176,12 +174,14 @@ export class EventProcessor {
                 this.pendingCompletions.set(sessionId, { debounceTimer, chatId: busyInfo.chatId, threadId: busyInfo.threadId })
               }
             } else {
+              // Still working: keep the Telegram "typing…" indicator alive
+              // (it auto-expires after ~5s; we poll every 3s) and refresh the
+              // single status bubble in place from the messages we just fetched.
+              await this.sendTyping(busyInfo.chatId, busyInfo.threadId)
+              await this.updateWorkingStatus(busyInfo, messages)
+
               if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
                 await this.pollTodos(busyInfo)
-              }
-
-              if (statusPollCounter >= Math.floor(this.WORKING_STATUS_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
-                await this.pollWorkingStatus(busyInfo)
               }
             }
           } catch (error) {
@@ -209,9 +209,6 @@ export class EventProcessor {
 
         if (todoPollCounter >= Math.floor(this.TODO_POLL_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
           todoPollCounter = 0
-        }
-        if (statusPollCounter >= Math.floor(this.WORKING_STATUS_INTERVAL_MS / this.POLL_INTERVAL_MS)) {
-          statusPollCounter = 0
         }
 
         for (const [sessionId, busyInfo] of [...this.busySessions.entries()]) {
@@ -286,9 +283,10 @@ export class EventProcessor {
     }
   }
 
-  private async pollWorkingStatus(busyInfo: BusySessionInfo): Promise<void> {
+  // Refresh the single "working" status bubble in place from messages already
+  // fetched this poll (no extra API call). Deduped so we skip no-op edits.
+  private async updateWorkingStatus(busyInfo: BusySessionInfo, messages: any[]): Promise<void> {
     try {
-      const messages = await this.client.getMessages(busyInfo.sessionId, 3)
       const latest = messages[messages.length - 1]
       if (!latest || latest.role !== 'assistant' || !latest.parts) return
 
@@ -307,16 +305,18 @@ export class EventProcessor {
         }
       }
 
-      const statusText = this.buildWorkingStatus(currentStep, activeTools)
+      const statusText = buildWorkingStatus(currentStep, activeTools)
       if (statusText && statusText !== busyInfo.lastWorkingStatus) {
         busyInfo.lastWorkingStatus = statusText
         busyInfo.currentStepTitle = currentStep
 
+        // Edit the "⏳ …working" bubble itself in place (working.messageId),
+        // which processSessionIdle later flips to "✅ Task completed!".
         const working = this.workingSessions.get(busyInfo.sessionId)
-        if (working?.statusMessageId) {
+        if (working) {
           await this.bot.api.editMessageText(
             working.chatId,
-            working.statusMessageId,
+            working.messageId,
             statusText,
             { parse_mode: 'Markdown' }
           ).catch(() => {})
@@ -327,26 +327,16 @@ export class EventProcessor {
     }
   }
 
-  private buildWorkingStatus(step: string, tools: Array<{ tool: string; title: string }>): string {
-    const parts: string[] = []
-
-    if (step) {
-      parts.push(`🚀 *Step:* ${escapeMarkdown(step)}`)
+  private async sendTyping(chatId: number, threadId: number): Promise<void> {
+    try {
+      await this.bot.api.sendChatAction(
+        chatId,
+        'typing',
+        threadId > 0 ? { message_thread_id: threadId } : {}
+      )
+    } catch {
+      // Best-effort; the typing indicator is cosmetic
     }
-
-    for (const t of tools.slice(0, 3)) {
-      const icon = this.getToolIcon(t.tool)
-      const name = this.formatToolName(t.tool)
-      if (t.title) {
-        parts.push(`${icon} *${name}:* ${escapeMarkdown(t.title.substring(0, 80))}`)
-      } else {
-        parts.push(`${icon} *${name}*`)
-      }
-    }
-
-    if (parts.length === 0) return ''
-
-    return `🔧 *Working...*\n\n${parts.join('\n')}`
   }
 
   private async sendTodoUpdate(chatId: number, threadId: number, todos: TodoItem[]): Promise<void> {
@@ -387,9 +377,6 @@ export class EventProcessor {
         working.messageId,
         statusText
       ).catch(() => {})
-      if (working.statusMessageId) {
-        await this.bot.api.deleteMessage(working.chatId, working.statusMessageId).catch(() => {})
-      }
       this.workingSessions.delete(sessionId)
     }
 
@@ -507,7 +494,7 @@ export class EventProcessor {
 
         if (part.type === 'tool') {
           const toolName = part.tool || 'unknown'
-          const icon = this.getToolIcon(toolName)
+          const icon = getToolIcon(toolName)
           const title = stripAnsi(part.state?.title || '')
           const status = part.state?.status
 
@@ -525,7 +512,7 @@ export class EventProcessor {
               await this.sendWithRateLimit(
                 chatId,
                 busyInfo.threadId,
-                `⏳ ${icon} *${this.formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
+                `⏳ ${icon} *${formatToolName(toolName)}:* ${escapeMarkdown(title.substring(0, 100))}`,
                 { parse_mode: 'Markdown' }
               )
             }
@@ -584,8 +571,8 @@ export class EventProcessor {
   }
 
   private buildToolSummary(tool: string, part: any, runningTitle: string): string | null {
-    const icon = this.getToolIcon(tool)
-    const name = this.formatToolName(tool)
+    const icon = getToolIcon(tool)
+    const name = formatToolName(tool)
     const status = part.state?.status
     const stateData = part.state || {}
     const output = stripAnsi(stateData.output || '')
@@ -863,19 +850,4 @@ export class EventProcessor {
     }
   }
 
-  private getToolIcon(tool: string): string {
-    const icons: Record<string, string> = {
-      bash: '🖥️', edit: '✏️', write: '📝', read: '📖',
-      grep: '🔍', glob: '🔍', todowrite: '📋', websearch: '🌐',
-    }
-    return icons[tool] || '🔧'
-  }
-
-  private formatToolName(tool: string): string {
-    const toolNames: Record<string, string> = {
-      bash: 'Bash', edit: 'Edit', write: 'Write', read: 'Read',
-      grep: 'Grep', glob: 'Glob', todowrite: 'Todo', websearch: 'Search',
-    }
-    return toolNames[tool] || tool.charAt(0).toUpperCase() + tool.slice(1)
-  }
 }
