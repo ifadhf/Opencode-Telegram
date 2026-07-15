@@ -24,6 +24,27 @@ export function formatProvidersList(providers: Array<{ id: string; models?: Reco
   return message
 }
 
+/**
+ * Parse /move command arguments.
+ * Returns { directory (absolute path), moveChanges } or null if invalid.
+ */
+export function parseMoveArgs(text: string, worktreeRoot: string): { directory: string; moveChanges: boolean } | null {
+  const parts = text.split(/\s+/)
+  parts.shift() // remove the command itself
+
+  const moveChanges = parts.includes('--changes')
+  const dirArgs = parts.filter(p => p !== '--changes' && p.trim() !== '')
+
+  if (dirArgs.length === 0) return null
+
+  const dirInput = dirArgs[0]
+  const absPath = dirInput.startsWith('/') ? dirInput : `${process.env.HOME || '/home/fadh'}/${dirInput}`
+
+  if (!absPath.startsWith(worktreeRoot)) return null
+
+  return { directory: absPath, moveChanges }
+}
+
 export function registerCommands(
   bot: Bot,
   stateManager: StateManager,
@@ -433,20 +454,31 @@ export function registerCommands(
       return
     }
 
-    const args = ctx.message?.text?.split(/\s+/) || []
-    if (args.length < 2) {
-      await ctx.reply('Usage: <code>/move <directory> [--changes]</code>\n\nMove session to another directory. Use <code>--changes</code> to transfer uncommitted changes.', { parse_mode: 'HTML' })
+    const worktree = getWorktreeRoot()
+    const parsed = parseMoveArgs(ctx.message?.text || '', worktree)
+    if (!parsed) {
+      await ctx.reply(
+        `Usage: <code>/move &lt;directory&gt; [--changes]</code>\n\n` +
+        `Move session to another directory within the workspace:\n` +
+        `<code>${escapeHtml(worktree)}</code>\n\n` +
+        `Use <code>--changes</code> to transfer uncommitted changes.`,
+        { parse_mode: 'HTML' }
+      )
       return
     }
 
-    const directory = args[1]
-    const moveChanges = args.includes('--changes')
-
     try {
-      await client.moveSession(sessionId, directory, moveChanges)
-      const msg = moveChanges
-        ? `✅ Session moved to <code>${escapeHtml(directory)}</code> (with uncommitted changes)`
-        : `✅ Session moved to <code>${escapeHtml(directory)}</code>`
+      await client.moveSession(sessionId, parsed.directory, parsed.moveChanges)
+
+      // Re-bind topic → session to keep state consistent after directory change
+      if (threadId > 0) {
+        stateManager.setTopicSession(ctx.chat.id, threadId, sessionId)
+      }
+
+      const verified = await client.getSession(sessionId)
+      const msg = parsed.moveChanges
+        ? `✅ Session moved to <code>${escapeHtml(verified.directory)}</code> (with uncommitted changes)`
+        : `✅ Session moved to <code>${escapeHtml(verified.directory)}</code>`
       await ctx.reply(msg, { parse_mode: 'HTML' })
     } catch (error) {
       const msg = (error as Error).message
