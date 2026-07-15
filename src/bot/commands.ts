@@ -89,15 +89,15 @@ export function registerCommands(
       '/clear - Clear current session\n\n' +
       '<b>Model Commands:</b>\n' +
       '/providers - List AI providers\n' +
-      '/models <provider> - List models for provider\n' +
+      '/models &lt;provider&gt; - List models for provider\n' +
       '/model - Show/select current model\n\n' +
       '<b>Mode Commands:</b>\n' +
       '/mode - Select mode (build/plan)\n' +
       '/modes - List available modes\n\n' +
       '<b>File Commands:</b>\n' +
       '/files - List project files\n' +
-      '/file <path> - View file content\n' +
-      '/find <pattern> - Search code\n\n' +
+      '/file &lt;path&gt; - View file content\n' +
+      '/find &lt;pattern&gt; - Search code\n\n' +
       '<b>Info Commands:</b>\n' +
       '/cost - Show cost tracking\n' +
       '/todo - Show task list\n' +
@@ -970,7 +970,7 @@ export function registerCommands(
           '• <code>code</code> - Alternative coding mode\n' +
           '• <code>review</code> - Code review mode\n' +
           '• <code>debug</code> - Debugging mode\n\n' +
-          'Use <code>/mode <name></code> to select.',
+          'Use <code>/mode &lt;name&gt;</code> to select.',
           { parse_mode: 'HTML' }
         )
         return
@@ -985,7 +985,7 @@ export function registerCommands(
         }
         message += '\n'
       }
-      message += '\nUse <code>/mode <name></code> to select.'
+      message += '\nUse <code>/mode &lt;name&gt;</code> to select.'
 
       await ctx.reply(message, { parse_mode: 'HTML' })
     } catch {
@@ -996,7 +996,7 @@ export function registerCommands(
         '• <code>code</code> - Alternative coding mode\n' +
         '• <code>review</code> - Code review mode\n' +
         '• <code>debug</code> - Debugging mode\n\n' +
-        'Use <code>/mode <name></code> to select.',
+        'Use <code>/mode &lt;name&gt;</code> to select.',
         { parse_mode: 'HTML' }
       )
     }
@@ -1033,7 +1033,7 @@ export function registerCommands(
         message += '<b>Could not fetch session mode.</b>\n\n'
       }
 
-      message += '<b>Usage:</b> <code>/mode <name></code>\n\n'
+      message += '<b>Usage:</b> <code>/mode &lt;name&gt;</code>\n\n'
       message += 'Allowed modes:\n'
       message += '• <code>build</code> - Code implementation\n'
       message += '• <code>plan</code> - Planning and design\n\n'
@@ -1219,7 +1219,7 @@ export function registerCommands(
       '<b>OpenCode Telegram Bot Help</b>\n\n' +
       '<b>Session Commands:</b>\n' +
       '/session - Create new session\n' +
-      '/session <id> - Select existing session\n' +
+      '/session &lt;id&gt; - Select existing session\n' +
       '/sessions - List recent sessions\n' +
       '/continue - Continue old session (interactive)\n' +
       '/newtopic - Create session in a forum topic\n' +
@@ -1229,17 +1229,17 @@ export function registerCommands(
       '/clear - Clear current settings\n\n' +
       '<b>Model Commands:</b>\n' +
       '/providers - List AI providers\n' +
-      '/models <provider> - List models for provider\n' +
+      '/models &lt;provider&gt; - List models for provider\n' +
       '/model - Show current model\n' +
-      '/model <provider> <model> - Select model\n\n' +
+      '/model &lt;provider&gt; &lt;model&gt; - Select model\n\n' +
       '<b>Mode Commands:</b>\n' +
       '/mode - Show current mode\n' +
-      '/mode <name> - Select mode\n' +
+      '/mode &lt;name&gt; - Select mode\n' +
       '/modes - List available modes\n\n' +
       '<b>File Commands:</b>\n' +
       '/files [path] - List files in directory\n' +
-      '/file <path> - View file content\n' +
-      '/find <pattern> - Search code\n\n' +
+      '/file &lt;path&gt; - View file content\n' +
+      '/find &lt;pattern&gt; - Search code\n\n' +
       '<b>Info Commands:</b>\n' +
       '/cost - Show cost tracking\n' +
       '/todo - Show task list\n' +
