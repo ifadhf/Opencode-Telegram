@@ -457,13 +457,25 @@ export function registerCommands(
     const worktree = getWorktreeRoot()
     const parsed = parseMoveArgs(ctx.message?.text || '', worktree)
     if (!parsed) {
-      await ctx.reply(
-        `Usage: <code>/move &lt;directory&gt; [--changes]</code>\n\n` +
-        `Move session to another directory within the workspace:\n` +
-        `<code>${escapeHtml(worktree)}</code>\n\n` +
-        `Use <code>--changes</code> to transfer uncommitted changes.`,
-        { parse_mode: 'HTML' }
-      )
+      try {
+        const session = await client.getSession(sessionId)
+        await ctx.reply(
+          `Usage: <code>/move &lt;directory&gt; [--changes]</code>\n\n` +
+          `Current directory: <code>${escapeHtml(session.directory)}</code>\n` +
+          `Workspace: <code>${escapeHtml(worktree)}</code>\n\n` +
+          `Move session to another directory within the workspace.\n` +
+          `Use <code>--changes</code> to transfer uncommitted changes.`,
+          { parse_mode: 'HTML' }
+        )
+      } catch {
+        await ctx.reply(
+          `Usage: <code>/move &lt;directory&gt; [--changes]</code>\n\n` +
+          `Move session to another directory within the workspace:\n` +
+          `<code>${escapeHtml(worktree)}</code>\n\n` +
+          `Use <code>--changes</code> to transfer uncommitted changes.`,
+          { parse_mode: 'HTML' }
+        )
+      }
       return
     }
 
