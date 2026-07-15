@@ -86,11 +86,12 @@ export class EventProcessor {
               const messages = await this.client.getMessages(sessionId, 50)
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
               const lastUser = [...messages].reverse().find(m => m.role === 'user')
-              this.busySessions.set(sessionId, {
+              const anchorId = lastUser?.id
+              const info: BusySessionInfo = {
                 chatId,
                 threadId,
                 sessionId,
-                anchorMessageId: lastUser?.id,
+                anchorMessageId: anchorId,
                 processedPartIds: new Set(),
                 processedStepFinishIds: new Set(),
                 processingTools: new Map(),
@@ -102,7 +103,24 @@ export class EventProcessor {
                 lastToolCall: '',
                 stepStartSeen: false,
                 currentStepTitle: '',
-              })
+              }
+              // Pre-populate processedPartIds with already-completed parts to avoid
+              // re-sending old assistant responses. This handles the race condition
+              // where prompt_async hasn't yet created the user message, causing
+              // anchor to point to the previous user message.
+              const existingNew = this.messagesAfterAnchor(messages, anchorId)
+              for (const msg of existingNew) {
+                if (msg.role !== 'assistant' || !msg.parts) continue
+                for (const part of msg.parts) {
+                  if (part.time?.end) {
+                    info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
+                  }
+                  if (part.type === 'step-finish') {
+                    info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+                  }
+                }
+              }
+              this.busySessions.set(sessionId, info)
             } catch {
               // Ignore - will retry next poll
             }
@@ -125,11 +143,12 @@ export class EventProcessor {
               const messages = await this.client.getMessages(sessionId, 50)
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
               const lastUser = [...messages].reverse().find(m => m.role === 'user')
-              this.busySessions.set(sessionId, {
+              const anchorId = lastUser?.id
+              const info: BusySessionInfo = {
                 chatId,
                 threadId: 0,
                 sessionId,
-                anchorMessageId: lastUser?.id,
+                anchorMessageId: anchorId,
                 processedPartIds: new Set(),
                 processedStepFinishIds: new Set(),
                 processingTools: new Map(),
@@ -141,7 +160,20 @@ export class EventProcessor {
                 lastToolCall: '',
                 stepStartSeen: false,
                 currentStepTitle: '',
-              })
+              }
+              const existingNew = this.messagesAfterAnchor(messages, anchorId)
+              for (const msg of existingNew) {
+                if (msg.role !== 'assistant' || !msg.parts) continue
+                for (const part of msg.parts) {
+                  if (part.time?.end) {
+                    info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
+                  }
+                  if (part.type === 'step-finish') {
+                    info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+                  }
+                }
+              }
+              this.busySessions.set(sessionId, info)
             } catch {
               // Ignore - will retry next poll
             }
