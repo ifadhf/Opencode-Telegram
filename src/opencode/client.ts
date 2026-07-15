@@ -170,10 +170,8 @@ export class OpenCodeClient {
   }
 
   async createSession(directory?: string): Promise<SessionInfo> {
-    return this.request<SessionInfo>('/session', {
-      method: 'POST',
-      body: JSON.stringify({ directory }),
-    })
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : ''
+    return this.request<SessionInfo>(`/session${qs}`, { method: 'POST' })
   }
 
   async getSession(sessionId: string): Promise<SessionInfo> {
@@ -220,6 +218,31 @@ export class OpenCodeClient {
 
   async getConfig(): Promise<{ model?: string; agent?: Record<string, { model?: string; mode?: string }> }> {
     return this.request('/config')
+  }
+
+  async applySessionDefaults(sessionId: string): Promise<void> {
+    try {
+      const config = await this.getConfig()
+      if (!config.agent) return
+
+      const defaultAgent = Object.keys(config.agent)
+        .find(k => config.agent?.[k]?.mode === 'all')
+      if (!defaultAgent) return
+
+      await this.setSessionAgent(sessionId, defaultAgent)
+
+      const agentModel = config.agent[defaultAgent]?.model
+      if (agentModel) {
+        const slashIdx = agentModel.indexOf('/')
+        if (slashIdx > 0) {
+          const providerID = agentModel.substring(0, slashIdx)
+          const modelId = agentModel.substring(slashIdx + 1)
+          await this.setSessionModel(sessionId, providerID, modelId)
+        }
+      }
+    } catch {
+      // best effort — model/agent defaults from config are not critical
+    }
   }
 
   async sendMessage(sessionId: string, content: string, options?: {
