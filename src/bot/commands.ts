@@ -467,11 +467,12 @@ export function registerCommands(
           `Use <code>--changes</code> to transfer uncommitted changes.`,
           { parse_mode: 'HTML' }
         )
-      } catch {
+      } catch (e) {
+        log.warn('Failed to fetch session for /move usage', { error: (e as Error).message, sessionId })
         await ctx.reply(
           `Usage: <code>/move &lt;directory&gt; [--changes]</code>\n\n` +
-          `Move session to another directory within the workspace:\n` +
-          `<code>${escapeHtml(worktree)}</code>\n\n` +
+          `Workspace: <code>${escapeHtml(worktree)}</code>\n\n` +
+          `Move session to another directory within the workspace.\n` +
           `Use <code>--changes</code> to transfer uncommitted changes.`,
           { parse_mode: 'HTML' }
         )
