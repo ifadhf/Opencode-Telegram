@@ -17,7 +17,7 @@ export function formatProvidersList(providers: Array<{ id: string; models?: Reco
     const modelCount = Object.keys(p.models || {}).length
     message += `${i + 1}. <code>${escapeHtml(p.id)}</code> (${modelCount} models)\n`
   }
-  message += '\nUse <code>/models <provider></code> to see models for a provider.'
+  message += '\nUse <code>/models &lt;provider&gt;</code> to see models for a provider.'
   if (providers.length > 0) {
     message += '\nExample: <code>/models ' + escapeHtml(providers[0].id) + '</code>'
   }
@@ -211,7 +211,7 @@ export function registerCommands(
         const title = s.title || '(untitled)'
         message += `- <code>${escapeHtml(s.id)}</code>\n  ${escapeHtml(title)}\n\n`
       }
-      message += 'Use <code>/session <id></code> to select a session.'
+      message += 'Use <code>/session &lt;id&gt;</code> to select a session.'
 
       await ctx.reply(message, { parse_mode: 'HTML' })
     } catch (error) {
@@ -530,7 +530,7 @@ export function registerCommands(
     if (!targetId) {
       const { sessionId, threadId } = resolveSessionFromCtx(ctx)
       if (!sessionId) {
-        await ctx.reply(threadId > 0 ? 'No session bound to this topic. Use <code>/delete <session_id></code>.' : 'No session selected. Use <code>/delete <session_id></code>.', { parse_mode: 'HTML' })
+        await ctx.reply(threadId > 0 ? 'No session bound to this topic. Use <code>/delete &lt;session_id&gt;</code>.' : 'No session selected. Use <code>/delete &lt;session_id&gt;</code>.', { parse_mode: 'HTML' })
         return
       }
       await ctx.reply(`Current session: <code>${escapeHtml(sessionId)}</code>\n\nTo delete, use: <code>/delete ${escapeHtml(sessionId)}</code>`, { parse_mode: 'HTML' })
@@ -713,7 +713,7 @@ export function registerCommands(
     log.info('User command', { command: '/file', args: filePath, userId: ctx.from?.id })
 
     if (!filePath) {
-      await ctx.reply('Usage: <code>/file <path></code>\nExample: <code>/file src/index.ts</code>', { parse_mode: 'HTML' })
+      await ctx.reply('Usage: <code>/file &lt;path&gt;</code>\nExample: <code>/file src/index.ts</code>', { parse_mode: 'HTML' })
       return
     }
 
@@ -758,7 +758,7 @@ export function registerCommands(
     log.info('User command', { command: '/find', args: pattern, userId: ctx.from?.id })
 
     if (!pattern) {
-      await ctx.reply('Usage: <code>/find <pattern></code>\nExample: <code>/find function handleEvent</code>', { parse_mode: 'HTML' })
+      await ctx.reply('Usage: <code>/find &lt;pattern&gt;</code>\nExample: <code>/find function handleEvent</code>', { parse_mode: 'HTML' })
       return
     }
 
@@ -871,7 +871,7 @@ export function registerCommands(
         }
         message += '\n'
       }
-      message += `\nSelect with: <code>/model ${escapeHtml(providerFilter)} <model_id></code>`
+      message += `\nSelect with: <code>/model ${escapeHtml(providerFilter)} &lt;model_id&gt;</code>`
 
       const chunks = splitMessage(message)
       for (const chunk of chunks) {
@@ -915,8 +915,8 @@ export function registerCommands(
 
       message += '<b>Usage:</b>\n'
       message += '• <code>/providers</code> - List providers\n'
-      message += '• <code>/models <provider></code> - List models for provider\n'
-      message += '• <code>/model <provider> <model></code> - Select model\n\n'
+      message += '• <code>/models &lt;provider&gt;</code> - List models for provider\n'
+      message += '• <code>/model &lt;provider&gt; &lt;model&gt;</code> - Select model\n\n'
       message += 'Example:\n'
       message += '<code>/model anthropic claude-3-opus</code>'
 
@@ -928,7 +928,7 @@ export function registerCommands(
     if (parts.length < 2) {
       await ctx.reply(
         'Invalid format. Use:\n' +
-        '<code>/model <provider> <model></code>\n\n' +
+        '<code>/model &lt;provider&gt; &lt;model&gt;</code>\n\n' +
         'Example:\n' +
         '<code>/model anthropic claude-3-opus</code>',
         { parse_mode: 'HTML' }
@@ -1249,7 +1249,7 @@ export function registerCommands(
       'Just send any message to prompt OpenCode!\n' +
       'Multiple messages are queued and processed in order.\n\n' +
       '<b>Tips:</b>\n' +
-      '• Use <code>/providers</code> then <code>/models <provider></code> to browse\n' +
+      '• Use <code>/providers</code> then <code>/models &lt;provider&gt;</code> to browse\n' +
       '• Use <code>/mode plan</code> for planning\n' +
       '• Use <code>/mode build</code> for coding\n' +
       '• Use <code>/abort</code> to stop a running task\n' +
