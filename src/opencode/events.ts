@@ -775,6 +775,9 @@ export class EventProcessor {
     const busyInfo = this.busySessions.get(sessionId)
     if (!busyInfo) return null
 
+    // Session is about to go idle — don't show as "working"
+    if (this.pendingCompletions.has(sessionId)) return null
+
     const parts: string[] = []
     if (busyInfo.currentStepTitle) {
       parts.push(`Step: ${busyInfo.currentStepTitle}`)
