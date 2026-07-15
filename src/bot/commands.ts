@@ -1128,15 +1128,31 @@ export function registerCommands(
         }
 
         const session = await client.createSession(absPath)
+        await client.applySessionDefaults(session.id)
         stateManager.setTopicSession(ctx.chat.id, threadId, session.id)
 
-        await ctx.reply(
-          `✅ <b>Session created for this topic</b>\n` +
-          `ID: <code>${escapeHtml(session.id)}</code>\n` +
-          `Directory: <code>${escapeHtml(session.directory)}</code>\n\n` +
-          `Send any message to start!`,
-          { parse_mode: 'HTML' }
-        )
+        const refreshed = await client.getSession(session.id)
+        const modelStr = refreshed.model
+          ? `${escapeHtml(refreshed.model.id)}`
+          : '(default)'
+        const modeStr = refreshed.agent || '(default)'
+        const tCreated = (refreshed as any).time?.created
+          ? new Date((refreshed as any).time.created).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
+          : ''
+
+        let msg = `✅ <b>New session created</b>\n`
+        msg += `<b>Session:</b>\n`
+        msg += `ID: <code>${escapeHtml(session.id)}</code>\n`
+        msg += `Title: ${escapeHtml(refreshed.title || '(untitled)')}\n`
+        msg += `State: 💤 Idle\n`
+        msg += `Directory: <code>${escapeHtml(refreshed.directory)}</code>\n`
+        if (tCreated) msg += `Created: ${tCreated}\n`
+        msg += `\n`
+        msg += `<b>Model:</b> <code>${escapeHtml(modelStr)}</code> (default)\n`
+        msg += `<b>Mode:</b> <code>${escapeHtml(modeStr)}</code> (default)\n\n`
+        msg += `Send any message to start!`
+
+        await ctx.reply(msg, { parse_mode: 'HTML' })
       } catch (error) {
         await ctx.reply(`❌ Failed to create session: ${(error as Error).message}`)
       }

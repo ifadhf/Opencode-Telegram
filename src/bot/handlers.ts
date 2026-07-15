@@ -11,6 +11,7 @@ import { TranscriptionClient, transcribeAudio } from '../opencode/voice.js'
 import { answerForIndex } from '../opencode/questionFormat.js'
 import { pickLargestPhoto, buildImagePart } from './photo.js'
 import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState, getPendingFolderCreate, setPendingFolderCreate, clearPendingFolderCreate } from './dirBrowser.js'
+import { escapeHtml } from '../utils/formatter.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -470,15 +471,32 @@ export function registerHandlers(
             await eventProcessor.forceSessionIdle(oldBinding, chatId, '↪️ New session created')
           }
           const session = await client.createSession(state.path)
+          await client.applySessionDefaults(session.id)
           stateManager.setTopicSession(chatId, threadId, session.id)
           clearBrowseState(chatId, threadId)
-          await ctx.answerCallbackQuery('Session created')
-          await ctx.editMessageText(
-            `✅ <b>New session created</b>\n` +
-            `Directory: <code>${session.directory}</code>\n\n` +
-            `Send any message to start!`,
-            { parse_mode: 'HTML' }
-          )
+
+          const refreshed = await client.getSession(session.id)
+          const modelStr = refreshed.model
+            ? `${escapeHtml(refreshed.model.id)}`
+            : '(default)'
+          const modeStr = refreshed.agent || '(default)'
+          const tCreated = (refreshed as any).time?.created
+            ? new Date((refreshed as any).time.created).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })
+            : ''
+
+          let msg = `✅ <b>New session created</b>\n`
+          msg += `<b>Session:</b>\n`
+          msg += `ID: <code>${escapeHtml(session.id)}</code>\n`
+          msg += `Title: ${escapeHtml(refreshed.title || '(untitled)')}\n`
+          msg += `State: 💤 Idle\n`
+          msg += `Directory: <code>${escapeHtml(refreshed.directory)}</code>\n`
+          if (tCreated) msg += `Created: ${tCreated}\n`
+          msg += `\n`
+          msg += `<b>Model:</b> <code>${escapeHtml(modelStr)}</code> (default)\n`
+          msg += `<b>Mode:</b> <code>${escapeHtml(modeStr)}</code> (default)\n\n`
+          msg += `Send any message to start!`
+
+          await ctx.editMessageText(msg, { parse_mode: 'HTML' })
         } catch (error) {
           log.error('Failed to create topic session', { error: (error as Error).message })
           await ctx.answerCallbackQuery('Failed')
