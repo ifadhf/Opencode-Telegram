@@ -104,18 +104,22 @@ export class EventProcessor {
                 stepStartSeen: false,
                 currentStepTitle: '',
               }
-              // Pre-populate processedPartIds with already-completed parts to avoid
-              // re-sending old assistant responses. This handles the race condition
-              // where prompt_async hasn't yet created the user message, causing
-              // anchor to point to the previous user message.
+              // Pre-populate processedPartIds with parts from old/stale responses
+              // to avoid re-sending them when anchor points to the previous user
+              // message (race condition: prompt_async fire-and-forget creates user
+              // message asynchronously). Only mark parts completed > 5s before
+              // discovery, so newly-generated responses from the current prompt
+              // are NOT pre-marked and get relayed normally.
+              const now = Date.now()
               const existingNew = this.messagesAfterAnchor(messages, anchorId)
               for (const msg of existingNew) {
                 if (msg.role !== 'assistant' || !msg.parts) continue
                 for (const part of msg.parts) {
-                  if (part.time?.end) {
+                  const partEnd = part.time?.end || 0
+                  if (partEnd > 0 && (now - partEnd) > 5000) {
                     info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
                   }
-                  if (part.type === 'step-finish') {
+                  if (part.type === 'step-finish' && partEnd > 0 && (now - partEnd) > 5000) {
                     info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
                   }
                 }
@@ -165,10 +169,11 @@ export class EventProcessor {
               for (const msg of existingNew) {
                 if (msg.role !== 'assistant' || !msg.parts) continue
                 for (const part of msg.parts) {
-                  if (part.time?.end) {
+                  const partEnd = part.time?.end || 0
+                  if (partEnd > 0 && (Date.now() - partEnd) > 5000) {
                     info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
                   }
-                  if (part.type === 'step-finish') {
+                  if (part.type === 'step-finish' && partEnd > 0 && (Date.now() - partEnd) > 5000) {
                     info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
                   }
                 }
