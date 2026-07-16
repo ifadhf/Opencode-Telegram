@@ -553,12 +553,16 @@ export class EventProcessor {
           if (!part.text?.trim() || part.ignored || part.synthetic) continue
           const text = stripAnsi(part.text.trim())
           if (text) {
-            // Render the agent's Markdown as real MarkdownV2, then chunk (splitMessage
-            // is code-block aware, so fences survive the split).
-            const body = toTelegramMarkdown(text)
-            const chunks = splitMessage(`📝 *Response:*\n${body}`)
-            for (const chunk of chunks) {
-              await this.sendWithRateLimit(chatId, busyInfo.threadId, chunk, { parse_mode: 'MarkdownV2' })
+            // ccbot method: split the RAW markdown first (splitMessage is fence
+            // aware), then render each chunk to MarkdownV2 independently — so a
+            // split boundary can never break the MarkdownV2 entities (which would
+            // 400 and fall back to raw plain text). Smaller max leaves headroom
+            // for the escaping expansion telegramify adds.
+            const rawChunks = splitMessage(text, 3500)
+            for (let i = 0; i < rawChunks.length; i++) {
+              const md = toTelegramMarkdown(rawChunks[i])
+              const msg = i === 0 ? `📝 *Response:*\n${md}` : md
+              await this.sendWithRateLimit(chatId, busyInfo.threadId, msg, { parse_mode: 'MarkdownV2' })
             }
           }
         }
