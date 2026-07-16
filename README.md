@@ -2,7 +2,9 @@
 
 Bot Telegram untuk mengontrol [OpenCode](https://opencode.ai) dari Telegram — dengan dukungan forum topics (multi-sesi paralel), voice message transcription, history berpaginasi, dan notifikasi real-time.
 
-Fork dari [vineetkishore01/Opencode-Telegram](https://github.com/vineetkishore01/Opencode-Telegram) dengan lapisan UX ala ccbot — backend API OpenCode (HTTP + SSE), bukan tmux.
+Fork dari [vineetkishore01/Opencode-Telegram](https://github.com/vineetkishore01/Opencode-Telegram) dengan lapisan UX ala ccbot — backend API OpenCode (HTTP), bukan tmux.
+
+> **Formatting (hybrid):** konten agent (balasan & thinking) dirender ke **Telegram MarkdownV2** (via `telegramify-markdown`), sedangkan seluruh UI bot (status, output tool, prompt permission/pertanyaan, notifikasi) memakai **parse_mode HTML**.
 
 ## ✨ Features
 
@@ -10,7 +12,7 @@ Fork dari [vineetkishore01/Opencode-Telegram](https://github.com/vineetkishore01
 - **Forum Topics / Multi-Sesi** — 1 topic = 1 sesi OpenCode, bisa paralel di project berbeda
 - **Voice Message → Transkrip** — kirim voice note, otomatis ditranskrip via OpenAI Whisper, lanjut sebagai prompt
 - **History Berpaginasi** — `/history` dengan inline keyboard `◀ Older / Newer ▶`, 5 pesan per halaman
-- **Notifikasi Real-time** — SSE-based event streaming, ringkasan tool, thinking blockquote (flag-based)
+- **Notifikasi Real-time** — 3-second HTTP polling, ringkasan tool, thinking blockquote (flag-based)
 - **Permission Handling** — approve/reject via tombol inline (Once/Always/Reject)
 - **Session Management** — create, list, switch, continue session
 - **Model & Mode Selection** — pilih provider, model, mode (build/plan) per-sesi
@@ -85,6 +87,9 @@ opencode-tele --no-server   # connect ke OpenCode server yang sudah jalan
 | `/status` | Lihat status sesi (ID, model, mode, cwd) |
 | `/working` | Lihat apa yang sedang dikerjakan OpenCode |
 | `/abort` | Hentikan task yang sedang berjalan |
+| `/move <dir> [--changes]` | Pindahkan sesi ke direktori/project lain |
+| `/compact` | Ringkas (compact) histori sesi |
+| `/delete <id>` | Hapus sesi OpenCode |
 
 ### Model & Mode
 
@@ -95,6 +100,7 @@ opencode-tele --no-server   # connect ke OpenCode server yang sudah jalan
 | `/model` | Pilih / lihat model saat ini |
 | `/modes` | List mode yang tersedia |
 | `/mode` | Pilih mode (build / plan) |
+| `/subagent on\|off` | Toggle dispatch subagent (default OFF) |
 
 ### Files & Code
 
@@ -248,7 +254,7 @@ systemctl --user restart opencode-tele
 
 ```bash
 # TDD contracts (dari folder Opencode-Telegram)
-node --test test/f2/prereq-api.mjs test/f2/state-contract.mjs
+node --test test/f14/binding-contract.mjs   # topic binding → sessionId (menggantikan f2/state-contract yang dihapus)
 node --test test/f3/prereq-api.mjs test/f3/voice-contract.mjs test/f3/history-contract.mjs
 node --test test/f4/prereq-api.mjs test/f4/health-contract.mjs test/f4/config-contract.mjs
 
