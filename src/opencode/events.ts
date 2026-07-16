@@ -49,6 +49,11 @@ export class EventProcessor {
   private sentQuestions = new Set<string>()
   private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number; threadId: number }>()
   private chatUserInfo = new Map<number, string>()
+  // Persistent per-session relay dedup — survives busyInfo re-creation so a
+  // re-discovered session never re-relays a part (was the duplicate bug), and a
+  // genuine part is never wrongly pre-marked (was the missing bug).
+  private relayedParts = new Map<string, Set<string>>()
+  private relayedStepFinish = new Map<string, Set<string>>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
@@ -88,13 +93,14 @@ export class EventProcessor {
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
               const lastUser = [...messages].reverse().find(m => m.role === 'user')
               const anchorId = lastUser?.id
+              const firstDiscovery = !this.relayedParts.has(sessionId)
               const info: BusySessionInfo = {
                 chatId,
                 threadId,
                 sessionId,
                 anchorMessageId: anchorId,
-                processedPartIds: new Set(),
-                processedStepFinishIds: new Set(),
+                processedPartIds: this.getRelayedSet(sessionId),
+                processedStepFinishIds: this.getRelayedStepSet(sessionId),
                 processingTools: new Map(),
                 startedAt: Date.now(),
                 lastActivityAt: Date.now(),
@@ -105,23 +111,25 @@ export class EventProcessor {
                 stepStartSeen: false,
                 currentStepTitle: '',
               }
-              // Pre-populate processedPartIds with parts from old/stale responses
-              // to avoid re-sending them when anchor points to the previous user
-              // message (race condition: prompt_async fire-and-forget creates user
-              // message asynchronously). Only mark parts completed > 5s before
-              // discovery, so newly-generated responses from the current prompt
-              // are NOT pre-marked and get relayed normally.
-              const now = Date.now()
-              const existingNew = this.messagesAfterAnchor(messages, anchorId)
-              for (const msg of existingNew) {
-                if (msg.role !== 'assistant' || !msg.parts) continue
-                for (const part of msg.parts) {
-                  const partEnd = part.time?.end || 0
-                  if (partEnd > 0 && (now - partEnd) > 5000) {
-                    info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
-                  }
-                  if (part.type === 'step-finish' && partEnd > 0 && (now - partEnd) > 5000) {
-                    info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+              // Seed the relay set ONLY on the first discovery of a session — to
+              // skip old/stale responses when the anchor points to a previous user
+              // message (prompt_async creates the new user message asynchronously).
+              // On re-discovery the persistent set already tracks what was relayed,
+              // so we must NOT re-seed (re-seeding wrongly pre-marked genuine
+              // replies → the missing-message bug).
+              if (firstDiscovery) {
+                const now = Date.now()
+                const existingNew = this.messagesAfterAnchor(messages, anchorId)
+                for (const msg of existingNew) {
+                  if (msg.role !== 'assistant' || !msg.parts) continue
+                  for (const part of msg.parts) {
+                    const partEnd = part.time?.end || 0
+                    if (partEnd > 0 && (now - partEnd) > 5000) {
+                      info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
+                    }
+                    if (part.type === 'step-finish' && partEnd > 0 && (now - partEnd) > 5000) {
+                      info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+                    }
                   }
                 }
               }
@@ -149,13 +157,14 @@ export class EventProcessor {
               const todos = await this.client.getSessionTodo(sessionId).catch(() => [])
               const lastUser = [...messages].reverse().find(m => m.role === 'user')
               const anchorId = lastUser?.id
+              const firstDiscovery = !this.relayedParts.has(sessionId)
               const info: BusySessionInfo = {
                 chatId,
                 threadId: 0,
                 sessionId,
                 anchorMessageId: anchorId,
-                processedPartIds: new Set(),
-                processedStepFinishIds: new Set(),
+                processedPartIds: this.getRelayedSet(sessionId),
+                processedStepFinishIds: this.getRelayedStepSet(sessionId),
                 processingTools: new Map(),
                 startedAt: Date.now(),
                 lastActivityAt: Date.now(),
@@ -166,16 +175,19 @@ export class EventProcessor {
                 stepStartSeen: false,
                 currentStepTitle: '',
               }
-              const existingNew = this.messagesAfterAnchor(messages, anchorId)
-              for (const msg of existingNew) {
-                if (msg.role !== 'assistant' || !msg.parts) continue
-                for (const part of msg.parts) {
-                  const partEnd = part.time?.end || 0
-                  if (partEnd > 0 && (Date.now() - partEnd) > 5000) {
-                    info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
-                  }
-                  if (part.type === 'step-finish' && partEnd > 0 && (Date.now() - partEnd) > 5000) {
-                    info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+              // Seed only on first discovery (see topic-binding block above).
+              if (firstDiscovery) {
+                const existingNew = this.messagesAfterAnchor(messages, anchorId)
+                for (const msg of existingNew) {
+                  if (msg.role !== 'assistant' || !msg.parts) continue
+                  for (const part of msg.parts) {
+                    const partEnd = part.time?.end || 0
+                    if (partEnd > 0 && (Date.now() - partEnd) > 5000) {
+                      info.processedPartIds.add(part.id || `${msg.id}:${part.type}`)
+                    }
+                    if (part.type === 'step-finish' && partEnd > 0 && (Date.now() - partEnd) > 5000) {
+                      info.processedStepFinishIds.add(part.id || `${msg.id}-step-finish`)
+                    }
                   }
                 }
               }
@@ -214,6 +226,11 @@ export class EventProcessor {
 
                 const debounceTimer = setTimeout(async () => {
                   this.pendingCompletions.delete(sessionId)
+                  // Guard against a false completion: an intermediate/empty
+                  // assistant message may have completed before the real response
+                  // started. If a new response is now generating, don't idle —
+                  // keep the session busy so the next poll relays it.
+                  if (await this.isSessionStillGenerating(sessionId)) return
                   this.busySessions.delete(sessionId)
                   await this.processSessionIdle(sessionId, busyInfo.chatId, busyInfo.threadId)
                 }, COMPLETION_DEBOUNCE_MS)
@@ -477,6 +494,41 @@ export class EventProcessor {
     } else {
       const userLabel = this.chatUserInfo.get(chatId) || 'user'
       await this.bot.api.sendMessage(chatId, buildIdleMessage(userLabel), { ...sendOpts, parse_mode: 'HTML' }).catch(() => {})
+    }
+  }
+
+  // Persistent per-session relayed-part set (created once, reused across every
+  // discovery of the session). Capped to avoid unbounded growth over a long run.
+  getRelayedSet(sessionId: string): Set<string> {
+    let s = this.relayedParts.get(sessionId)
+    if (!s) {
+      s = new Set()
+      if (this.relayedParts.size > 200) this.relayedParts.delete(this.relayedParts.keys().next().value as string)
+      this.relayedParts.set(sessionId, s)
+    }
+    return s
+  }
+
+  getRelayedStepSet(sessionId: string): Set<string> {
+    let s = this.relayedStepFinish.get(sessionId)
+    if (!s) {
+      s = new Set()
+      if (this.relayedStepFinish.size > 200) this.relayedStepFinish.delete(this.relayedStepFinish.keys().next().value as string)
+      this.relayedStepFinish.set(sessionId, s)
+    }
+    return s
+  }
+
+  // Whether the session is still producing output (last message is an assistant
+  // message that hasn't completed). Used to avoid idling on a false completion
+  // when a fast follow-up response has already started generating.
+  async isSessionStillGenerating(sessionId: string): Promise<boolean> {
+    try {
+      const messages = await this.client.getMessages(sessionId, 5)
+      const last = messages[messages.length - 1]
+      return !!(last && last.role === 'assistant' && !(last.time?.completed || (last as any).finish))
+    } catch {
+      return false
     }
   }
 
