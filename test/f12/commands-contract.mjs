@@ -147,7 +147,9 @@ describe('F12 moveSession request body', { skip: !IMPL }, () => {
   test('moveSession can be called with (sessionId, directory, moveChanges)', () => {
     const client = new OpenCodeClient('http://127.0.0.1:1')
     assert.doesNotThrow(() => {
-      client.moveSession('ses_test', '/tmp/dir', false)
+      // fire-and-forget: swallow the async rejection (unreachable server) so it
+      // doesn't surface as an unhandledRejection after the test ends
+      client.moveSession('ses_test', '/tmp/dir', false).catch(() => {})
     })
   })
 })

@@ -30,10 +30,14 @@ describe('F5.3 working-status formatter contract', { skip: !IMPL }, () => {
     assert.match(s, /🚀 \*Step:\* Analyze code/)
   })
 
-  test('tools rendered with icon + name (title markdown-escaped)', () => {
-    const s = mod.buildWorkingStatus('', [{ tool: 'bash', title: 'ls -la' }])
-    assert.match(s, /🖥️ \*Bash:\*/)
-    assert.ok(s.includes('ls \\-la'), 'title special chars escaped for Markdown')
+  test('tools rendered with icon + name (title HTML-escaped)', () => {
+    // Post-F13: output uses parse_mode HTML, so dynamic text is escapeHtml'd
+    // (angle brackets → entities), not Markdown-backslash-escaped.
+    const s = mod.buildWorkingStatus('', [{ tool: 'bash', title: 'cat a<b>c' }])
+    assert.match(s, /🖥️/)
+    assert.match(s, /Bash/)
+    assert.ok(s.includes('a&lt;b&gt;c'), 'title HTML-escaped')
+    assert.ok(!s.includes('a<b>c'), 'raw angle brackets must be escaped')
   })
 
   test('caps at 3 tools', () => {

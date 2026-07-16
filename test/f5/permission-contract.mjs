@@ -59,7 +59,7 @@ describe('F5.1 permission routing contract', { skip: !RESOLVE_IMPL }, () => {
   test('resolveChat: topic-bound session returns {chatId, threadId}', async () => {
     const { sm, dir } = await freshState()
     try {
-      await sm.setTopicSession(-100123, 55, { sessionId: 'ses_t', cwd: '/p' })
+      sm.setTopicSession(-100123, 55, 'ses_t')
       await sm.flushSave()
       assert.deepEqual(sm.resolveChat('ses_t'), { chatId: -100123, threadId: 55 })
     } finally { await rm(dir, { recursive: true, force: true }) }
@@ -84,7 +84,7 @@ describe('F5.1 permission routing contract', { skip: !RESOLVE_IMPL }, () => {
   test('permission for a TOPIC session is delivered to that thread', async () => {
     const { sm, dir } = await freshState()
     try {
-      await sm.setTopicSession(-100123, 55, { sessionId: 'ses_t', cwd: '/p' })
+      sm.setTopicSession(-100123, 55, 'ses_t')
       await sm.flushSave()
       const bot = fakeBot()
       const h = new PermissionHandler(fakeClient, bot, sm)
