@@ -24,10 +24,10 @@ describe('F5.3 working-status formatter contract', { skip: !IMPL }, () => {
     assert.equal(mod.buildWorkingStatus('', []), '')
   })
 
-  test('step only -> Working header + step line', () => {
+  test('step only -> Working header + step line (HTML)', () => {
     const s = mod.buildWorkingStatus('Analyze code', [])
-    assert.match(s, /🔧 \*Working\.\.\.\*/)
-    assert.match(s, /🚀 \*Step:\* Analyze code/)
+    assert.match(s, /🔧 <b>Working\.\.\.<\/b>/)
+    assert.match(s, /🚀 <b>Step:<\/b> Analyze code/)
   })
 
   test('tools rendered with icon + name (title HTML-escaped)', () => {

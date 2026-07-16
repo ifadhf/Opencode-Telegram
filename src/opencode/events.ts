@@ -676,7 +676,7 @@ export class EventProcessor {
         const size = output.length
         let summary = `${icon} <b>${name}:</b>`
         if (lines <= 3 && size <= 200) {
-          summary += `\n\`\`\`\n${escapeHtml(output.trim().substring(0, 200))}\n\`\`\``
+          summary += `\n<pre>${escapeHtml(output.trim().substring(0, 200))}</pre>`
         } else if (lines > 0) {
           summary += ` ${lines} lines, ${size} chars`
         } else {

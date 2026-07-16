@@ -33,22 +33,22 @@ export function buildWorkingStatus(step: string, tools: ActiveTool[]): string {
   const parts: string[] = []
 
   if (step) {
-    parts.push(`🚀 *Step:* ${escapeHtml(step)}`)
+    parts.push(`🚀 <b>Step:</b> ${escapeHtml(step)}`)
   }
 
   for (const t of tools.slice(0, 3)) {
     const icon = getToolIcon(t.tool)
     const name = formatToolName(t.tool)
     if (t.title) {
-      parts.push(`${icon} *${name}:* ${escapeHtml(t.title.substring(0, 80))}`)
+      parts.push(`${icon} <b>${name}:</b> ${escapeHtml(t.title.substring(0, 80))}`)
     } else {
-      parts.push(`${icon} *${name}*`)
+      parts.push(`${icon} <b>${name}</b>`)
     }
   }
 
   if (parts.length === 0) return ''
 
-  return `🔧 *Working...*\n\n${parts.join('\n')}`
+  return `🔧 <b>Working...</b>\n\n${parts.join('\n')}`
 }
 
 // Build the idle message shown when a session finishes and the queue is empty.
