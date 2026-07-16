@@ -50,3 +50,8 @@ export function buildWorkingStatus(step: string, tools: ActiveTool[]): string {
 
   return `🔧 *Working...*\n\n${parts.join('\n')}`
 }
+
+// Build the idle message shown when a session finishes and the queue is empty.
+export function buildIdleMessage(label: string): string {
+  return `✅ <b>Task Selesai — menunggu input</b> ${label}`
+}

@@ -4,7 +4,7 @@ import { StateManager } from '../state/manager.js'
 import { PermissionHandler } from './permission.js'
 import { MessageQueue } from '../bot/queue.js'
 import { escapeHtml, splitMessage, stripAnsi } from '../utils/formatter.js'
-import { getToolIcon, formatToolName, buildWorkingStatus } from '../utils/toolFormat.js'
+import { getToolIcon, formatToolName, buildWorkingStatus, buildIdleMessage } from '../utils/toolFormat.js'
 import { renderQuestion } from './questionFormat.js'
 import { toTelegramMarkdown } from '../utils/markdown.js'
 import { imageFromPart, OutgoingImage } from '../bot/photo.js'
@@ -48,6 +48,7 @@ export class EventProcessor {
   private busySessions = new Map<string, BusySessionInfo>()
   private sentQuestions = new Set<string>()
   private pendingCompletions = new Map<string, { debounceTimer: NodeJS.Timeout; chatId: number; threadId: number }>()
+  private chatUserInfo = new Map<number, string>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
@@ -433,11 +434,15 @@ export class EventProcessor {
 
     const working = this.workingSessions.get(sessionId)
     if (working) {
-      await this.bot.api.editMessageText(
-        working.chatId,
-        working.messageId,
-        statusText
-      ).catch(() => {})
+      if (statusText === '✅ Task completed!') {
+        await this.bot.api.deleteMessage(working.chatId, working.messageId).catch(() => {})
+      } else {
+        await this.bot.api.editMessageText(
+          working.chatId,
+          working.messageId,
+          statusText
+        ).catch(() => {})
+      }
       this.workingSessions.delete(sessionId)
     }
 
@@ -470,7 +475,8 @@ export class EventProcessor {
         this.messageQueue.setIdle(chatId, threadId)
       }
     } else {
-      await this.bot.api.sendMessage(chatId, '✅ <b>Selesai — menunggu input</b>', { ...sendOpts, parse_mode: 'HTML' }).catch(() => {})
+      const userLabel = this.chatUserInfo.get(chatId) || 'user'
+      await this.bot.api.sendMessage(chatId, buildIdleMessage(userLabel), { ...sendOpts, parse_mode: 'HTML' }).catch(() => {})
     }
   }
 
@@ -759,6 +765,10 @@ export class EventProcessor {
 
   setWorkingMessage(sessionId: string, chatId: number, messageId: number, threadId = 0): void {
     this.workingSessions.set(sessionId, { chatId, threadId, messageId })
+  }
+
+  setUserInfo(chatId: number, label: string): void {
+    this.chatUserInfo.set(chatId, label)
   }
 
   async forceSessionIdle(sessionId: string, chatId: number, statusText = '🛑 Task aborted', threadId = 0): Promise<void> {

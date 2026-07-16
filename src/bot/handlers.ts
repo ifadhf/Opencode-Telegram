@@ -111,6 +111,10 @@ export function registerHandlers(
     // Mark session as busy
     messageQueue.setBusy(ctx.chat.id, threadId)
 
+    // Store user info for idle message mention
+    const userLabel = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name || 'user')
+    eventProcessor.setUserInfo(ctx.chat.id, userLabel)
+
     // Send "working" message
     const replyOpts: any = {}
     if (threadId > 0) replyOpts.message_thread_id = threadId
