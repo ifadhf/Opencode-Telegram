@@ -51,7 +51,14 @@ export function buildWorkingStatus(step: string, tools: ActiveTool[]): string {
   return `🔧 <b>Working...</b>\n\n${parts.join('\n')}`
 }
 
+// A real Telegram inline mention that pings the user regardless of whether they
+// have a public @username (works via their numeric id). Send with parse_mode HTML.
+export function buildUserMention(id: number, name: string): string {
+  return `<a href="tg://user?id=${id}">${escapeHtml(name)}</a>`
+}
+
 // Build the idle message shown when a session finishes and the queue is empty.
+// `label` is expected to already be a mention (HTML from buildUserMention).
 export function buildIdleMessage(label: string): string {
   return `✅ <b>Task Selesai — menunggu input</b> ${label}`
 }

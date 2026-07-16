@@ -12,6 +12,7 @@ import { answerForIndex } from '../opencode/questionFormat.js'
 import { pickLargestPhoto, buildImagePart } from './photo.js'
 import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState, getPendingFolderCreate, setPendingFolderCreate, clearPendingFolderCreate } from './dirBrowser.js'
 import { escapeHtml } from '../utils/formatter.js'
+import { buildUserMention } from '../utils/toolFormat.js'
 import { pinLastMessage } from './commands.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
@@ -25,6 +26,14 @@ function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: str
 
 function getThreadId(ctx: any): number {
   return ctx.message?.message_thread_id ?? ctx.callbackQuery?.message?.message_thread_id ?? 0
+}
+
+// Store a real Telegram mention (works without a public @username) so the
+// completion/idle notification can ping the user.
+function rememberUser(eventProcessor: EventProcessor, ctx: any): void {
+  if (!ctx.from || !ctx.chat) return
+  const name = ctx.from.first_name || ctx.from.username || 'user'
+  eventProcessor.setUserInfo(ctx.chat.id, buildUserMention(ctx.from.id, name))
 }
 
 export function registerHandlers(
@@ -111,9 +120,8 @@ export function registerHandlers(
     // Mark session as busy
     messageQueue.setBusy(ctx.chat.id, threadId)
 
-    // Store user info for idle message mention
-    const userLabel = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name || 'user')
-    eventProcessor.setUserInfo(ctx.chat.id, userLabel)
+    // Store a real mention for the idle/completion ping
+    rememberUser(eventProcessor, ctx)
 
     // Send "working" message
     const replyOpts: any = {}
@@ -204,6 +212,7 @@ export function registerHandlers(
 
       stateManager.incrementPromptCount(ctx.chat.id)
       messageQueue.setBusy(ctx.chat.id, threadId)
+      rememberUser(eventProcessor, ctx)
       const workingMsg = await ctx.reply('📷 Image sent — OpenCode is working...', replyOpts)
       eventProcessor.setWorkingMessage(sessionId, ctx.chat.id, workingMsg.message_id, threadId)
 
@@ -281,6 +290,7 @@ export function registerHandlers(
 
       stateManager.incrementPromptCount(ctx.chat.id)
       messageQueue.setBusy(ctx.chat.id, threadId)
+      rememberUser(eventProcessor, ctx)
 
       const replyOpts: any = {}
       if (threadId > 0) replyOpts.message_thread_id = threadId
