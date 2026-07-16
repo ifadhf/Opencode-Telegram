@@ -879,83 +879,6 @@ export class EventProcessor {
     return this.stateManager.resolveChat(sessionId)
   }
 
-  private async handleSessionError(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
-    if (!target) return
-
-    const errorName = event.error?.name || 'Error'
-    const errorMsg = stripAnsi(event.error?.message || 'Unknown error')
-
-    const opts: any = { parse_mode: 'HTML' }
-    if (target.threadId > 0) opts.message_thread_id = target.threadId
-
-    await this.bot.api.sendMessage(
-      target.chatId,
-      `⚠️ <b>${escapeHtml(errorName)}</b>\n${escapeHtml(errorMsg.substring(0, 300))}`,
-      opts
-    ).catch(() => {})
-  }
-
-  private async handleSessionDiff(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
-    if (!target) return
-
-    const diffs = event.diff || []
-    if (diffs.length === 0) return
-
-    let message = `📁 <b>File Changes (${diffs.length}):</b>\n\n`
-    for (const diff of diffs.slice(0, 10)) {
-      const statusIcon = diff.status === 'added' ? '🆕' : diff.status === 'deleted' ? '🗑️' : '📝'
-      message += `${statusIcon} <code>${escapeHtml(diff.file)}</code> (+${diff.additions || 0} -${diff.deletions || 0})\n`
-    }
-    if (diffs.length > 10) {
-      message += `_...and ${diffs.length - 10} more files_\n`
-    }
-
-    const chunks = splitMessage(message)
-    for (const chunk of chunks) {
-      await this.sendWithRateLimit(target.chatId, target.threadId, chunk, { parse_mode: 'HTML' })
-    }
-  }
-
-  private async handleSessionUpdated(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
-    if (!target) return
-
-    const info = event.info
-    if (!info) return
-
-    if (info.title) {
-      await this.sendWithRateLimit(
-        target.chatId, target.threadId,
-        `📝 <b>Session title:</b> ${escapeHtml(info.title)}`,
-        { parse_mode: 'HTML' }
-      )
-    }
-
-    if (info.summary) {
-      const s = info.summary
-      if (s.additions || s.deletions) {
-        await this.sendWithRateLimit(
-          target.chatId, target.threadId,
-          `📊 Changes: +${s.additions || 0} -${s.deletions || 0} (${s.files || 0} files)`,
-          { parse_mode: 'HTML' }
-        )
-      }
-    }
-  }
-
-  private async handleSessionCompacted(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
-    if (!target) return
-
-    await this.sendWithRateLimit(
-      target.chatId, target.threadId,
-      '📦 <b>Context compacted</b> — older messages summarized to save space.',
-      { parse_mode: 'HTML' }
-    )
-  }
-
   // Poll GET /question for pending interactive questions and surface each new
   // one as tappable buttons. OpenCode has no push on the polling path, so we
   // mirror checkPendingPermissions. sentQuestions dedupes across polls; ids no
@@ -991,35 +914,6 @@ export class EventProcessor {
     await this.bot.api.sendMessage(target.chatId, text, opts).catch(error => {
       log.error('Failed to send question', { error: (error as Error).message })
     })
-  }
-
-  private async handleTodoUpdated(event: any): Promise<void> {
-    const target = this.resolveSessionChat(event.sessionID)
-    if (!target) return
-
-    const todos: TodoItem[] = event.todos || []
-    if (todos.length === 0) return
-
-    await this.sendTodoUpdate(target.chatId, target.threadId, todos)
-  }
-
-  private async handleUpdateAvailable(event: any): Promise<void> {
-    const chatIds = this.stateManager.getAllChatIds()
-    for (const chatId of chatIds) {
-      await this.sendWithRateLimit(
-        chatId, 0,
-        `🔔 <b>Update Available</b>: OpenCode <code>${escapeHtml(event.version || 'new version')}</code> is available!`,
-        { parse_mode: 'HTML' }
-      )
-    }
-    const topicBindings = this.stateManager.getAllTopicBindings()
-    for (const binding of topicBindings) {
-      await this.sendWithRateLimit(
-        binding.chatId, binding.threadId,
-        `🔔 <b>Update Available</b>: OpenCode <code>${escapeHtml(event.version || 'new version')}</code> is available!`,
-        { parse_mode: 'HTML' }
-      )
-    }
   }
 
 }

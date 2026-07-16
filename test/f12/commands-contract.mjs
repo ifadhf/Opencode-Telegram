@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const BASE = 'http://127.0.0.1:4097'
-const OC_TEST_DIR = process.env.OC_TEST_DIR || '/home/fadh/workspace/opencode-telegram-dev/oc-test'
+const OC_TEST_DIR = process.env.OC_TEST_DIR || '/home/fadh/agent_workspace'
 
 let OpenCodeClient
 let IMPL = false

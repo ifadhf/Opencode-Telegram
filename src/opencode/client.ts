@@ -20,14 +20,6 @@ export interface Provider {
   models: Record<string, { id: string; name?: string }>
 }
 
-export interface OpenCodeEvent {
-  type: string
-  sessionId?: string
-  data: any
-}
-
-export type EventHandler = (event: OpenCodeEvent) => void
-
 const REQUEST_TIMEOUT = 30000
 
 export class OpenCodeClient {
@@ -105,68 +97,6 @@ export class OpenCodeClient {
       }
       req.end()
     })
-  }
-
-  /**
-   * Subscribe to SSE events for real-time updates
-   */
-  async subscribeEvents(handler: EventHandler): Promise<void> {
-    this.log.info('Subscribing to OpenCode event stream')
-
-    return new Promise((resolve, reject) => {
-      const transport = this.isHttps ? https : http
-      const req = transport.get({
-        hostname: this.hostname,
-        port: this.port,
-        path: '/event',
-        headers: this.buildHeaders(),
-        timeout: REQUEST_TIMEOUT,
-      })
-
-      req.on('error', (err) => {
-        this.log.warn('SSE connection failed', { error: err.message })
-        resolve() // Resolve anyway - events won't be received
-      })
-
-      req.on('response', (res) => {
-        if (res.statusCode !== 200) {
-          this.log.warn('SSE not available', { statusCode: res.statusCode })
-          resolve()
-          return
-        }
-
-        this.log.info('Connected to SSE stream')
-        let buffer = ''
-
-        res.on('data', (chunk) => {
-          buffer += chunk.toString()
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6))
-                const event: OpenCodeEvent = {
-                  type: data.type,
-                  sessionId: data.properties?.sessionID || data.properties?.sessionId,
-                  data: data.properties
-                }
-                handler(event)
-              } catch (err) {
-                this.log.debug('Failed to parse SSE event', { error: (err as Error).message })
-              }
-            }
-          }
-        })
-      })
-
-      req.end()
-    })
-  }
-
-  unsubscribeEvents(): void {
-    this.log.info('SSE subscription ended')
   }
 
   async createSession(directory?: string): Promise<SessionInfo> {

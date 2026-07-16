@@ -4,7 +4,7 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 
 const OC_URL = process.env.OPENCODE_URL || 'http://127.0.0.1:4097'
-const OC_TEST_DIR = process.env.OC_TEST_DIR || '/home/fadh/workspace/opencode-telegram-dev/oc-test'
+const OC_TEST_DIR = process.env.OC_TEST_DIR || '/home/fadh/agent_workspace'
 const WS_ROOT = process.env.WS_ROOT || '/home/fadh/workspace'
 
 async function api(path, init) {
