@@ -16,9 +16,9 @@ export function renderQuestion(req: QuestionRequest): RenderedQuestion {
   const questionText = q?.question || 'OpenCode has a question'
   const options = q?.options || []
 
-  let text = `❓ *${escapeHtml(header)}*\n\n${escapeHtml(questionText)}`
+  let text = `❓ <b>${escapeHtml(header)}</b>\n\n${escapeHtml(questionText)}`
   if (req.questions && req.questions.length > 1) {
-    text += `\n\n_(+${req.questions.length - 1} more — answer this first)_`
+    text += `\n\n<i>(+${req.questions.length - 1} more — answer this first)</i>`
   }
 
   const inlineKeyboard: Array<Array<{ text: string; callback_data: string }>> = []
@@ -27,7 +27,7 @@ export function renderQuestion(req: QuestionRequest): RenderedQuestion {
     inlineKeyboard.push([{ text: opt.label, callback_data: `q:${req.id}:${idx}` }])
   })
   if (options.length === 0) {
-    text += '\n\n_Reply to this message with your answer._'
+    text += '\n\n<i>Reply to this message with your answer.</i>'
   }
   inlineKeyboard.push([{ text: '❌ Dismiss', callback_data: `q:reject:${req.id}` }])
 

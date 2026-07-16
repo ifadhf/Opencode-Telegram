@@ -74,6 +74,10 @@ export class HealthMonitor {
       if (this.wasUnhealthy) {
         this.wasUnhealthy = false
         this.unhealthy = false
+        // Reset the restart budget on recovery — otherwise attempts accumulate
+        // over the whole process lifetime and the monitor permanently disables
+        // itself after a few crashes days apart (a silent SPOF).
+        this.restartAttempts = 0
         this.log('info', 'Health monitor: server recovered')
         this.options.onRecovered?.()
       }

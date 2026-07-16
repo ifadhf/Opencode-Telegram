@@ -3,6 +3,8 @@
 // dcancel) — never full paths. The current path + listing live in server-side
 // browse state keyed by chat+thread.
 
+import { escapeHtml } from '../utils/formatter.js'
+
 export interface DirEntry {
   name: string
   path: string
@@ -64,8 +66,8 @@ export function buildDirBrowser(currentPath: string, subdirs: DirEntry[], page: 
     { text: '❌ Cancel', callback_data: 'dcancel' },
   ])
 
-  let text = `📂 *Select working directory*\n\`${currentPath}\``
-  if (subdirs.length === 0) text += '\n\n_(no subfolders — Select this folder or go up)_'
+  let text = `📂 <b>Select working directory</b>\n<code>${escapeHtml(currentPath)}</code>`
+  if (subdirs.length === 0) text += '\n\n<i>(no subfolders — Select this folder or go up)</i>'
 
   return { text, inlineKeyboard: rows }
 }

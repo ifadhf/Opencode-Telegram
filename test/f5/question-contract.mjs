@@ -37,6 +37,7 @@ describe('F5.2 NOT YET IMPLEMENTED — question render/answer', { skip: IMPL }, 
 describe('F5.2 question render + answer contract', { skip: !IMPL }, () => {
   test('renderQuestion: header + question text + one button per option + dismiss', () => {
     const r = mod.renderQuestion(req)
+    assert.match(r.text, /<b>Pick one<\/b>/, 'header rendered as HTML bold (not Markdown *)')
     assert.match(r.text, /Pick one/)
     assert.match(r.text, /Which package manager\?/)
     // 2 option rows + 1 dismiss row

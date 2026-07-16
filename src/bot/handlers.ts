@@ -466,7 +466,7 @@ export function registerHandlers(
         setPendingFolderCreate(chatId, threadId)
         await ctx.answerCallbackQuery()
         await ctx.editMessageText(
-          `📂 <b>Create new folder in</b>\n<code>${state.path}</code>\n\n_Send the folder name:_`,
+          `📂 <b>Create new folder in</b>\n<code>${escapeHtml(state.path)}</code>\n\n<i>Send the folder name:</i>`,
           { parse_mode: 'HTML' }
         ).catch(() => {})
         return

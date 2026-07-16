@@ -34,11 +34,13 @@ export function escapeHtml(text: string): string {
 }
 
 export function formatPermissionRequest(permission: PermissionRequest): string {
-  const patterns = permission.patterns.map((p: string) => `\`${escapeMarkdown(p)}\``).join(', ')
+  // Sent with parse_mode HTML (like the rest of the bot UI) — must emit HTML,
+  // not Markdown, or the user sees literal *, backticks and backslashes.
+  const patterns = permission.patterns.map((p: string) => `<code>${escapeHtml(p)}</code>`).join(', ')
 
   return (
-    `*Permission Request*\n\n` +
-    `Permission: \`${escapeMarkdown(permission.permission)}\`\n` +
+    `🔐 <b>Permission Request</b>\n\n` +
+    `Permission: <code>${escapeHtml(permission.permission)}</code>\n` +
     `Patterns: ${patterns}\n\n` +
     `How would you like to respond?`
   )

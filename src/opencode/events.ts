@@ -54,6 +54,7 @@ export class EventProcessor {
   // genuine part is never wrongly pre-marked (was the missing bug).
   private relayedParts = new Map<string, Set<string>>()
   private relayedStepFinish = new Map<string, Set<string>>()
+  private idleProcessingSet = new Set<string>()
   private readonly SESSION_TIMEOUT_MS = 4 * 60 * 60 * 1000
   private readonly POLL_INTERVAL_MS = 3000
   private readonly TODO_POLL_INTERVAL_MS = 10000
@@ -323,9 +324,14 @@ export class EventProcessor {
         log.error('Polling error', { error: (error as Error).message, consecutiveErrors: this.consecutiveErrors })
 
         if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-          log.error('Too many consecutive errors, stopping event processor')
-          this.running = false
-          break
+          // Do NOT die permanently — the event processor is the bot's primary
+          // function (relay/completion/permission/question polling). A transient
+          // error burst must not silently stop it forever. Back off longer,
+          // reset the counter, and keep polling.
+          log.error('Too many consecutive polling errors — backing off, then resuming', { consecutiveErrors: this.consecutiveErrors })
+          this.consecutiveErrors = 0
+          await new Promise(resolve => setTimeout(resolve, 30000))
+          continue
         }
 
         await new Promise(resolve => setTimeout(resolve, 5000))
@@ -441,12 +447,21 @@ export class EventProcessor {
   }
 
   private async processSessionIdle(sessionId: string, chatId: number, threadId: number, statusText = '✅ Task completed!'): Promise<void> {
-    const existingBusy = this.busySessions.get(sessionId)
-    if (existingBusy?.idleProcessing) return
-    if (existingBusy) {
-      existingBusy.idleProcessing = true
+    // Re-entrancy guard: a completion debounce timer and a concurrent
+    // forceSessionIdle (/abort, /clear) could otherwise both run this and
+    // produce duplicate idle messages + a double dequeue. (The old
+    // busyInfo.idleProcessing guard was dead — every caller deletes the session
+    // from busySessions before calling, so existingBusy was always undefined.)
+    if (this.idleProcessingSet.has(sessionId)) return
+    this.idleProcessingSet.add(sessionId)
+    try {
+      await this.doProcessSessionIdle(sessionId, chatId, threadId, statusText)
+    } finally {
+      this.idleProcessingSet.delete(sessionId)
     }
+  }
 
+  private async doProcessSessionIdle(sessionId: string, chatId: number, threadId: number, statusText: string): Promise<void> {
     this.pendingCompletions.delete(sessionId)
 
     const working = this.workingSessions.get(sessionId)
@@ -528,7 +543,10 @@ export class EventProcessor {
       const last = messages[messages.length - 1]
       return !!(last && last.role === 'assistant' && !(last.time?.completed || (last as any).finish))
     } catch {
-      return false
+      // On uncertainty (transient fetch error) assume still generating, so we
+      // do NOT prematurely idle a session whose response is still coming. If
+      // OpenCode is genuinely down, the main poll loop's error path cleans up.
+      return true
     }
   }
 

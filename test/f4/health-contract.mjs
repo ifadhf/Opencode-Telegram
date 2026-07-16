@@ -174,6 +174,38 @@ describe('F4 HealthMonitor contract', { skip: !HEALTH_MONITOR_IMPL }, () => {
     assert.equal(hm.restartCount, 1)
   })
 
+  test('restartAttempts RESET on recovery — monitor survives crashes spread over time', async () => {
+    const { HealthMonitor } = await import('../../dist/opencode/health.js')
+    let restarts = 0
+    const hm = new HealthMonitor({
+      healthUrl: 'http://127.0.0.1:9999/x',
+      checkIntervalMs: 600000,
+      maxRestartAttempts: 2,
+      restartBackoffMs: 1,
+      onRestart: async () => { restarts++ },
+    })
+    // Drive check() directly with scripted health results (bypass real fetch).
+    let nextResult = { healthy: true }
+    hm.checkOnce = async () => nextResult
+
+    // Episode 1: two failures -> unhealthy -> 1 restart
+    nextResult = { healthy: false, reason: 'x' }
+    await hm.check(); await hm.check()
+    assert.equal(hm.restartCount, 1, 'first crash episode -> restartCount 1')
+
+    // Recovery: restartCount MUST reset to 0 (this was the bug — it never reset)
+    nextResult = { healthy: true }
+    await hm.check()
+    assert.equal(hm.restartCount, 0, 'restartCount must reset to 0 after recovery')
+
+    // Episode 2 (later crash): should count from 1 again, NOT accumulate to maxRestartAttempts
+    nextResult = { healthy: false, reason: 'x' }
+    await hm.check(); await hm.check()
+    assert.equal(hm.restartCount, 1, 'after recovery the counter restarts from 1, not accumulates to the cap')
+    assert.equal(restarts, 2, 'a restart must fire in BOTH episodes (monitor did not self-disable)')
+    hm.stop()
+  })
+
   test('default checkIntervalMs is 10000', async () => {
     const { HealthMonitor } = await import('../../dist/opencode/health.js')
     const hm = new HealthMonitor({ healthUrl: 'http://127.0.0.1:9999/session' })

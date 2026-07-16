@@ -40,6 +40,8 @@ describe('F7.3 directory browser contract', { skip: !IMPL }, () => {
     assert.ok(cbs.includes('dpick'), 'has select-this-folder')
     assert.ok(cbs.includes('dcancel'), 'has cancel')
     assert.ok(v.text.includes('/root'), 'shows current path')
+    assert.match(v.text, /<b>Select working directory<\/b>/, 'HTML header (not Markdown *)')
+    assert.match(v.text, /<code>\/root<\/code>/, 'path in HTML code tag')
   })
 
   test('buildDirBrowser: no pager when subdirs fit one page', () => {

@@ -96,6 +96,8 @@ describe('F5.1 permission routing contract', { skip: !RESOLVE_IMPL }, () => {
         bot.sent[0].opts.reply_markup?.inline_keyboard?.length >= 1,
         'must include approve/reject buttons'
       )
+      assert.ok(bot.sent[0].text.includes('<b>Permission Request</b>'), 'HTML formatted (not Markdown *)')
+      assert.ok(bot.sent[0].opts.parse_mode === 'HTML')
     } finally { await rm(dir, { recursive: true, force: true }) }
   })
 

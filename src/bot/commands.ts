@@ -1180,7 +1180,7 @@ export function registerCommands(
       const worktree = getWorktreeRoot()
       const absPath = args.startsWith('/') ? args : `${process.env.HOME || '/home/fadh'}/${args}`
       if (!absPath.startsWith(worktree)) {
-        await ctx.reply(`❌ Directory must be within workspace: \`${escapeHtml(worktree)}\``, { parse_mode: 'HTML' })
+        await ctx.reply(`❌ Directory must be within workspace: <code>${escapeHtml(worktree)}</code>`, { parse_mode: 'HTML' })
         return
       }
 
