@@ -12,6 +12,7 @@ import { answerForIndex } from '../opencode/questionFormat.js'
 import { pickLargestPhoto, buildImagePart } from './photo.js'
 import { buildDirBrowser, parentDir, listSubdirs, getBrowseState, setBrowseState, clearBrowseState, getPendingFolderCreate, setPendingFolderCreate, clearPendingFolderCreate } from './dirBrowser.js'
 import { escapeHtml } from '../utils/formatter.js'
+import { pinLastMessage } from './commands.js'
 
 function resolveSession(ctx: any, stateManager: StateManager): { sessionId?: string; threadId: number } {
   const threadId = ctx.message?.message_thread_id ?? 0
@@ -496,7 +497,10 @@ export function registerHandlers(
           msg += `<b>Mode:</b> <code>${escapeHtml(modeStr)}</code> (default)\n\n`
           msg += `Send any message to start!`
 
-          await ctx.editMessageText(msg, { parse_mode: 'HTML' })
+          const replyMsg = await ctx.editMessageText(msg, { parse_mode: 'HTML' })
+          if (replyMsg && typeof replyMsg === 'object' && 'message_id' in replyMsg) {
+            await pinLastMessage(ctx, replyMsg as { message_id: number }).catch(() => {})
+          }
         } catch (error) {
           log.error('Failed to create topic session', { error: (error as Error).message })
           await ctx.answerCallbackQuery('Failed')

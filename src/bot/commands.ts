@@ -45,6 +45,17 @@ export function parseMoveArgs(text: string, worktreeRoot: string): { directory: 
   return { directory: absPath, moveChanges }
 }
 
+/**
+ * Pin a reply message in the current chat/topic.
+ * Errors (e.g. missing pin permission) are silently caught.
+ */
+export async function pinLastMessage(
+  ctx: { pinChatMessage(msgId: number, opts?: any): Promise<true> },
+  msg: { message_id: number }
+): Promise<void> {
+  await ctx.pinChatMessage(msg.message_id, { disable_notification: true }).catch(() => {})
+}
+
 export function registerCommands(
   bot: Bot,
   stateManager: StateManager,
@@ -132,9 +143,10 @@ export function registerCommands(
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
-        await ctx.reply(`Selected session: <code>${escapeHtml(session.id)}</code>`, {
+        const replyMsg = await ctx.reply(`Selected session: <code>${escapeHtml(session.id)}</code>`, {
           parse_mode: 'HTML',
         })
+        await pinLastMessage(ctx, replyMsg).catch(() => {})
       } catch (error) {
         await ctx.reply(`Session not found: ${(error as Error).message}`)
       }
@@ -150,9 +162,10 @@ export function registerCommands(
         } else {
           stateManager.setCurrentSession(ctx.chat.id, session.id)
         }
-        await ctx.reply(`Created new session: <code>${escapeHtml(session.id)}</code>\n\nSend any message to start!`, {
+        const replyMsg = await ctx.reply(`Created new session: <code>${escapeHtml(session.id)}</code>\n\nSend any message to start!`, {
           parse_mode: 'HTML',
         })
+        await pinLastMessage(ctx, replyMsg).catch(() => {})
       } catch (error) {
         await ctx.reply(`Failed to create session: ${(error as Error).message}`)
       }
@@ -314,11 +327,16 @@ export function registerCommands(
         const messages = await client.getMessages(sessionId, 1)
         const lastMsg = messages[0] as any
         const STALE_MS = 120_000
-        const lastActivity = lastMsg?.time?.updated || lastMsg?.time?.created
+        const sessionUpdated = (session as any).time?.updated
+        const lastActivity = lastMsg?.time?.updated
+          || sessionUpdated
+          || lastMsg?.time?.created
         const isStale = lastActivity && (Date.now() - lastActivity > STALE_MS)
+        // Assistant message without 'completed' is definitively running — staleness
+        // check is irrelevant (tool calls can take minutes without updating timestamps).
         const isRunning = lastMsg?.role === 'assistant'
-          && !isStale
           && (!lastMsg.time?.completed || lastMsg.parts?.some((p: any) => p.state?.status === 'running'))
+          && !(lastMsg.time?.completed && isStale)
         if (isRunning) {
           message += `State: 🔄 Running\n`
         } else {
@@ -1197,7 +1215,8 @@ export function registerCommands(
         msg += `<b>Mode:</b> <code>${escapeHtml(modeStr)}</code> (default)\n\n`
         msg += `Send any message to start!`
 
-        await ctx.reply(msg, { parse_mode: 'HTML' })
+        const replyMsg = await ctx.reply(msg, { parse_mode: 'HTML' })
+        await pinLastMessage(ctx, replyMsg).catch(() => {})
       } catch (error) {
         await ctx.reply(`❌ Failed to create session: ${(error as Error).message}`)
       }
