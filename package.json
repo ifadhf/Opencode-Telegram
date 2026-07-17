@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "deploy": "bash scripts/deploy.sh",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
